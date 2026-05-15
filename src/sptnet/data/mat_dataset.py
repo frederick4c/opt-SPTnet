@@ -6,6 +6,21 @@ import torch
 
 
 class TransformerMatDataset(torch.utils.data.Dataset):
+    """Read SPTnet training samples from MATLAB v7.3/HDF5 files.
+
+    The dataset supports labeled simulation files containing `Hlabel`,
+    `Clabel`, `traceposition`, and `timelapsedata`, plus unlabeled files that
+    only contain `timelapsedata`. Labeled samples include padded query slots so
+    batches can be collated directly by PyTorch.
+
+    Parameters
+    ----------
+    config:
+        Object with `num_queries` and `image_size` attributes.
+    dataset_path:
+        Path to a `.mat`/HDF5 file.
+    """
+
     def __init__(self, config, dataset_path):
         super().__init__()
         self.config = config
@@ -18,6 +33,7 @@ class TransformerMatDataset(torch.utils.data.Dataset):
         self.td = self.dataset["timelapsedata"]
 
     def __len__(self):
+        """Return the number of movie samples stored in the file."""
         if self.has_labels:
             return len(self.dataset["Hlabel"][1])
         if self.td.ndim == 3:
@@ -27,6 +43,7 @@ class TransformerMatDataset(torch.utils.data.Dataset):
         raise ValueError(f"'timelapsedata' must be 3D or 4D, got {self.td.shape}.")
 
     def __getitem__(self, idx):
+        """Return one sample dictionary for training or video-only inference."""
         if self.td.ndim == 3:
             if idx != 0:
                 raise IndexError("Index out of range for single 3D movie.")
@@ -86,14 +103,17 @@ class TransformerMatDataset(torch.utils.data.Dataset):
         }
 
     def close(self):
+        """Close the underlying HDF5 file handle."""
         if getattr(self, "dataset", None) is not None:
             self.dataset.close()
             self.dataset = None
 
     def __enter__(self):
+        """Enter a context manager for explicit HDF5 lifecycle control."""
         return self
 
     def __exit__(self, exc_type, exc, traceback):
+        """Close the HDF5 file when leaving a context manager."""
         self.close()
 
     def __del__(self):

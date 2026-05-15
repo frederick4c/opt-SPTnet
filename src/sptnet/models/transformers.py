@@ -10,11 +10,11 @@ The public class names `Transformer` and `Transformer3d` are preserved for
 drop-in compatibility. Both use the same implementation, which accepts any
 input shaped as:
 
-    [batch, channels, *spatial_or_spatiotemporal_dims]
+    ``[batch, channels, *spatial_or_spatiotemporal_dims]``
 
 For the existing SPTnet code this covers:
-    - 2D feature maps: [B, C, H, W]
-    - 3D feature maps: [B, C, T, H, W]
+    - 2D feature maps: ``[B, C, H, W]``
+    - 3D feature maps: ``[B, C, T, H, W]``
 
 The transformer flattens all dimensions after channels, applies the encoder
 and decoder, then restores the original non-channel dimensions.
@@ -40,6 +40,13 @@ __all__ = [
 
 
 class FlattenedTransformer(nn.Module):
+    """DETR-style encoder/decoder that accepts 2D or 3D feature maps.
+
+    Inputs are expected as ``[B, C, *feature_shape]``. The module flattens
+    `feature_shape` into a sequence, applies the transformer, and reshapes the
+    encoder memory back to the original feature layout.
+    """
+
     def __init__(self, d_model=512, nhead=8, num_encoder_layers=6,
                  num_decoder_layers=6, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False,
@@ -68,6 +75,24 @@ class FlattenedTransformer(nn.Module):
                 nn.init.xavier_uniform_(p)
 
     def forward(self, src, mask, query_embed, pos_embed):
+        """Apply the transformer to a batched feature map.
+
+        Parameters
+        ----------
+        src:
+            Feature tensor shaped `[B, C, *feature_shape]`.
+        mask:
+            Boolean padding mask shaped `[B, *feature_shape]`.
+        query_embed:
+            Query embeddings shaped `[num_queries, C]`.
+        pos_embed:
+            Positional encoding with the same shape as `src`.
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor]
+            Decoder states and encoder memory.
+        """
         self._validate_inputs(src, mask, query_embed, pos_embed)
         batch_size, channels = src.shape[:2]
         feature_shape = src.shape[2:]
@@ -108,14 +133,16 @@ class FlattenedTransformer(nn.Module):
 
 
 class Transformer(FlattenedTransformer):
-    """Compatibility name for the original 2D transformer."""
+    """Transformer used for per-frame spatial feature maps."""
 
 
 class Transformer3d(FlattenedTransformer):
-    """Compatibility name for the original 3D transformer."""
+    """Transformer used for full spatiotemporal feature maps."""
 
 
 class TransformerEncoder(nn.Module):
+    """Stack of transformer encoder layers with optional final norm."""
+
     def __init__(self, encoder_layer, num_layers, norm=None):
         super().__init__()
         self.layers = _get_clones(encoder_layer, num_layers)
@@ -126,6 +153,7 @@ class TransformerEncoder(nn.Module):
                 mask: Optional[Tensor] = None,
                 src_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None):
+        """Encode a flattened feature sequence."""
         output = src
 
         for layer in self.layers:
@@ -139,6 +167,8 @@ class TransformerEncoder(nn.Module):
 
 
 class TransformerDecoder(nn.Module):
+    """Stack of transformer decoder layers with optional intermediate output."""
+
     def __init__(self, decoder_layer, num_layers, norm=None, return_intermediate=False):
         super().__init__()
         self.layers = _get_clones(decoder_layer, num_layers)
@@ -153,6 +183,7 @@ class TransformerDecoder(nn.Module):
                 memory_key_padding_mask: Optional[Tensor] = None,
                 pos: Optional[Tensor] = None,
                 query_pos: Optional[Tensor] = None):
+        """Decode query embeddings against encoded feature memory."""
         output = tgt
 
         intermediate = []
@@ -179,6 +210,8 @@ class TransformerDecoder(nn.Module):
 
 
 class TransformerEncoderLayer(nn.Module):
+    """Single encoder layer with self-attention and feed-forward network."""
+
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False):
         super().__init__()
@@ -237,6 +270,8 @@ class TransformerEncoderLayer(nn.Module):
 
 
 class TransformerDecoderLayer(nn.Module):
+    """Single decoder layer with self-attention and cross-attention."""
+
     def __init__(self, d_model, nhead, dim_feedforward=2048, dropout=0.1,
                  activation="relu", normalize_before=False):
         super().__init__()

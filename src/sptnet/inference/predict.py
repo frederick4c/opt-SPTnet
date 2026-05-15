@@ -5,12 +5,17 @@ import torch
 
 
 def extract_state_dict(ckpt_obj):
+    """Return a plain model state dict from a checkpoint-like object."""
     if isinstance(ckpt_obj, dict) and "state_dict" in ckpt_obj and isinstance(ckpt_obj["state_dict"], dict):
         return ckpt_obj["state_dict"]
     return ckpt_obj
 
 
 def get_num_queries(ckpt_path=None, state_dict=None):
+    """Infer the number of query slots from `query_embed.weight`.
+
+    Provide either a checkpoint path or an already-loaded state dict.
+    """
     if state_dict is None:
         if ckpt_path is None:
             raise ValueError("Either ckpt_path or state_dict must be provided.")
@@ -43,6 +48,12 @@ def normalize_state_dict_keys(state_dict, model):
 
 
 def load_checkpoint_strict_enough(model, ckpt_path=None, device=None, state_dict=None, min_loaded_fraction=0.9):
+    """Load model weights and fail if too few tensors match.
+
+    This is intentionally stricter than `strict=False` alone: it still allows
+    wrapper-prefix differences and minor non-critical mismatches, but catches
+    accidental architecture/checkpoint mismatches early.
+    """
     if state_dict is None:
         if ckpt_path is None:
             raise ValueError("Either ckpt_path or state_dict must be provided.")
@@ -81,12 +92,14 @@ def load_checkpoint_strict_enough(model, ckpt_path=None, device=None, state_dict
 
 
 def normalize_video_batch(inputs):
+    """Apply per-sample min-max normalization to `[B, 1, T, H, W]` videos."""
     image_max = inputs.amax(dim=tuple(range(2, inputs.ndim)), keepdim=True)
     image_min = inputs.amin(dim=tuple(range(2, inputs.ndim)), keepdim=True)
     return (inputs - image_min) / (image_max - image_min).clamp_min(1e-8)
 
 
 def run_batched_inference(model, dataloader, device):
+    """Run inference over a DataLoader and return per-sample result records."""
     results = []
     model.eval()
     with torch.no_grad():
@@ -115,6 +128,7 @@ def run_batched_inference(model, dataloader, device):
 
 
 def run_inference_loop(model, dataloader, checkpoint_path, device):
+    """Load a checkpoint and run the legacy-style inference accumulation loop."""
     load_checkpoint_strict_enough(model, ckpt_path=checkpoint_path, device=device, min_loaded_fraction=0.0)
     model.eval()
     total_obj_est = []

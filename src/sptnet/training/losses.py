@@ -21,6 +21,36 @@ def hungarian_matched_loss(
     num_frames,
     crlb_matrix,
 ):
+    """Compute SPTnet's Hungarian-matched multi-object training loss.
+
+    The loss matches predicted query slots to ground-truth trajectories using a
+    cost that combines object confidence, coordinate error, Hurst error, and
+    diffusion-coefficient error. Unmatched query slots are penalized as
+    background.
+
+    Parameters
+    ----------
+    pred_classes:
+        Predicted object probabilities shaped `[B, Q, T]`.
+    pred_positions:
+        Predicted normalized coordinates shaped `[B, Q, T, 2]`.
+    pred_h, pred_d:
+        Predicted Hurst and diffusion values shaped `[B, Q]`.
+    gt_classes:
+        Ground-truth activity labels shaped `[B, T, N]`.
+    gt_positions:
+        Ground-truth coordinates shaped `[B, T, N, 2]`.
+    gt_h, gt_d:
+        Ground-truth Hurst and diffusion labels shaped `[B, N]`.
+    num_queries:
+        Number of model query slots.
+    diff_max:
+        Maximum diffusion coefficient used for label normalization.
+    num_frames:
+        Number of movie frames used to index the CRLB weighting matrix.
+    crlb_matrix:
+        Precomputed CRLB matrix used to weight Hurst/diffusion losses.
+    """
     num_batches, num_queries_from_pred, num_frames_from_pred = pred_classes.shape
     if num_queries_from_pred != num_queries:
         raise ValueError(f"Expected {num_queries} queries, got {num_queries_from_pred}.")

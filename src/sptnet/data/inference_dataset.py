@@ -11,15 +11,20 @@ from torch.utils.data import Dataset
 
 
 class HDF5DatasetMixin:
+    """Mixin that gives HDF5-backed datasets an explicit close lifecycle."""
+
     def close(self):
+        """Close the dataset file handle if it is open."""
         if getattr(self, "dataset", None) is not None:
             self.dataset.close()
             self.dataset = None
 
     def __enter__(self):
+        """Enter a context manager for explicit HDF5 lifecycle control."""
         return self
 
     def __exit__(self, exc_type, exc, traceback):
+        """Close the HDF5 file when leaving a context manager."""
         self.close()
 
     def __del__(self):
@@ -27,6 +32,8 @@ class HDF5DatasetMixin:
 
 
 class InferenceSimulationDataset(HDF5DatasetMixin, Dataset):
+    """Dataset for simulation files that expose `timelapsedata` samples."""
+
     def __init__(self, config, dataset_path):
         super().__init__()
         self.dataset = h5py.File(dataset_path, "r")
@@ -39,6 +46,8 @@ class InferenceSimulationDataset(HDF5DatasetMixin, Dataset):
 
 
 class RunningWindowSimulationDataset(HDF5DatasetMixin, Dataset):
+    """Create fixed-length running windows from one simulation movie."""
+
     def __init__(self, config, dataset_path, window_size=30):
         super().__init__()
         self.dataset = h5py.File(dataset_path, "r")
@@ -53,6 +62,8 @@ class RunningWindowSimulationDataset(HDF5DatasetMixin, Dataset):
 
 
 class BeadsDataset(HDF5DatasetMixin, Dataset):
+    """Dataset wrapper for HDF5 files containing a `beadsdata` array."""
+
     def __init__(self, config, dataset_path):
         super().__init__()
         self.dataset = h5py.File(dataset_path, "r")
@@ -65,6 +76,8 @@ class BeadsDataset(HDF5DatasetMixin, Dataset):
 
 
 class ExperimentalDataset(HDF5DatasetMixin, Dataset):
+    """Dataset wrapper for one experimental movie stored under `ims`."""
+
     def __init__(self, config, dataset_path):
         super().__init__()
         self.dataset = h5py.File(dataset_path, "r")
@@ -77,6 +90,8 @@ class ExperimentalDataset(HDF5DatasetMixin, Dataset):
 
 
 class ERDataset(HDF5DatasetMixin, Dataset):
+    """Dataset wrapper for ER movies stored as an indexed `ims` array."""
+
     def __init__(self, config, dataset_path):
         super().__init__()
         self.dataset = h5py.File(dataset_path, "r")
@@ -89,7 +104,12 @@ class ERDataset(HDF5DatasetMixin, Dataset):
 
 
 class FileSampleDataset(Dataset):
-    """Flatten MAT/TIFF files into inference samples grouped by video shape."""
+    """Flatten MAT/TIFF files into inference samples grouped by video shape.
+
+    Each item includes the video array plus metadata needed to write results
+    back to one output file per original input file. Shape groups are recorded
+    so callers can batch only compatible `[T, H, W]` clips together.
+    """
 
     def __init__(self, file_list, mat_clip_index=0):
         self.records = []
@@ -122,6 +142,7 @@ class FileSampleDataset(Dataset):
                     raise ValueError(f"'timelapsedata' must be 3D or 4D, got {td.shape} in {file_path}.")
 
     def _add_record(self, file_path, ext, sample_idx, shape_key):
+        """Register one inference sample and its batch-compatible shape."""
         record = {
             "file_path": file_path,
             "ext": ext,
@@ -158,6 +179,8 @@ class FileSampleDataset(Dataset):
 
 
 class SubsetByIndices(Dataset):
+    """View a dataset through an explicit list of sample indices."""
+
     def __init__(self, dataset, indices):
         self.dataset = dataset
         self.indices = list(indices)
@@ -170,6 +193,7 @@ class SubsetByIndices(Dataset):
 
 
 def collate_inference(batch):
+    """Collate inference samples while preserving file metadata lists."""
     videos = torch.stack([torch.from_numpy(item["video"]) for item in batch], dim=0)
     return {
         "video": videos,

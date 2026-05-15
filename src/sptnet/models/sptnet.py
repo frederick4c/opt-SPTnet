@@ -12,6 +12,29 @@ from sptnet.models.backbone import BackBone
 
 
 class SPTnet(nn.Module):
+    """SPTnet detector/regressor model.
+
+    The model combines a 3D convolutional backbone with spatial and temporal
+    DETR-style transformer decoders. It predicts per-query object confidence,
+    normalized xy coordinates, Hurst exponent, and diffusion coefficient.
+
+    Parameters
+    ----------
+    num_classes:
+        Retained for compatibility with the original constructor; the current
+        model uses a single object-confidence head.
+    num_queries:
+        Number of trajectory query slots decoded by the transformer.
+    num_frames:
+        Number of frames expected in each input movie.
+    spatial_t:
+        Transformer used over per-frame spatial feature maps.
+    temporal_t:
+        Transformer used over the full spatiotemporal feature volume.
+    input_channel:
+        Retained for compatibility with the original constructor.
+    """
+
     def __init__(self, num_classes, num_queries, num_frames, spatial_t, temporal_t, input_channel):
         super().__init__()
         self.input_channel = input_channel
@@ -31,6 +54,19 @@ class SPTnet(nn.Module):
         self.fc4 = nn.Linear(64, 2)
 
     def forward(self, x):
+        """Run SPTnet on normalized videos.
+
+        Parameters
+        ----------
+        x:
+            Tensor shaped `[B, 1, T, H, W]`.
+
+        Returns
+        -------
+        tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+            `(class_logits, center_pred, h_est, d_est)` with shapes
+            `[B, Q, T]`, `[B, Q, T, 2]`, `[B, Q, 1]`, and `[B, Q, 1]`.
+        """
         features = F.relu(self.backbone(x))
         batch_size, channels, num_frames, height, width = features.shape
         device = features.device

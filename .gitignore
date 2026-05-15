@@ -1,6 +1,7 @@
 # cache
 __pycache__
 .DS_Store
+*.py[cod]
 
 
 # slurm files
@@ -8,6 +9,10 @@ slurm/
 
 # notebooks
 *.ipynb
+
+# docs
+docs/_build/
+docs/api/generated/
 
 # big files
 CRLB_H_D_frame.mat

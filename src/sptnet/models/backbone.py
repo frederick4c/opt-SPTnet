@@ -5,6 +5,20 @@ import torch.nn.functional as F
 
 
 class ResidualBlock(nn.Module):
+    """Two-layer 3D residual block used in the convolutional backbone.
+
+    Parameters
+    ----------
+    in_channels:
+        Number of channels in the input feature volume.
+    out_channels:
+        Number of channels produced by the block.
+    stride:
+        Kept for compatibility with the original architecture. The current
+        convolutions use unit stride; a projection shortcut is used when the
+        channel count changes.
+    """
+
     def __init__(self, in_channels, out_channels, stride=1):
         super().__init__()
         self.conv1 = nn.Conv3d(
@@ -37,6 +51,7 @@ class ResidualBlock(nn.Module):
             )
 
     def forward(self, x):
+        """Apply the residual block to a `[B, C, T, H, W]` tensor."""
         out = F.relu(self.conv1(x))
         out = self.conv2(out)
         out += self.shortcut(x)
@@ -44,6 +59,13 @@ class ResidualBlock(nn.Module):
 
 
 class BackBone(nn.Module):
+    """3D CNN feature extractor for SPTnet video inputs.
+
+    The backbone expects normalized movie tensors shaped `[B, 1, T, H, W]`
+    and returns feature volumes with 256 channels. Spatial dimensions are
+    downsampled by max-pooling while the temporal dimension is preserved.
+    """
+
     def __init__(self):
         super().__init__()
         self.in_channels = 16
@@ -64,6 +86,7 @@ class BackBone(nn.Module):
         self.adaptive_pool = nn.AdaptiveAvgPool3d((30, 4, 4))
 
     def make_layer(self, out_channels, num_blocks, stride):
+        """Build a sequence of residual blocks and update channel state."""
         layers = [ResidualBlock(self.in_channels, out_channels, stride)]
         self.in_channels = out_channels
         for _ in range(1, num_blocks):
@@ -71,6 +94,7 @@ class BackBone(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        """Extract spatiotemporal features from a batched movie tensor."""
         x = F.relu(self.conv1(x))
         x = self.layer1(x)
         x = self.pool1(x)
