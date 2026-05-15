@@ -34,8 +34,6 @@ class TransformerMatDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         """Return the number of movie samples stored in the file."""
-        if self.has_labels:
-            return len(self.dataset["Hlabel"][1])
         if self.td.ndim == 3:
             return 1
         if self.td.ndim == 4:

@@ -81,9 +81,7 @@ class BackBone(nn.Module):
         self.layer2 = self.make_layer(64, 2, stride=(1, 1, 1))
         self.layer3 = self.make_layer(128, 2, stride=(1, 1, 1))
         self.layer4 = self.make_layer(256, 2, stride=(1, 1, 1))
-        self.avg_pool = nn.AdaptiveAvgPool3d((30, 2, 2))
         self.pool1 = nn.MaxPool3d((1, 2, 2), stride=(1, 2, 2))
-        self.adaptive_pool = nn.AdaptiveAvgPool3d((30, 4, 4))
 
     def make_layer(self, out_channels, num_blocks, stride):
         """Build a sequence of residual blocks and update channel state."""

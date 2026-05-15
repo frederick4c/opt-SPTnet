@@ -107,9 +107,8 @@ def hungarian_matched_loss(
             gt_h_nonzero = gt_h[b][track_flag]
             gt_d_nonzero = gt_d[b][track_flag]
             h_idx = torch.clamp((gt_h_nonzero * 100).round() - 1, min=0, max=98).cpu().numpy().astype(int)
-            max_d_idx = int(diff_max * 100) - 1
             d_idx = (
-                torch.clamp((gt_d_nonzero * diff_max * 100).round() - 1, min=0, max=max_d_idx)
+                torch.clamp((gt_d_nonzero * diff_max * 100).round() - 1, min=0, max=diff_max * 100 - 1)
                 .cpu()
                 .numpy()
                 .astype(int)
@@ -180,7 +179,11 @@ def hungarian_matched_loss(
             non_obj_pre = pred_classes[b, :, :][np.setdiff1d(fullindex, col_indices), :]
             non_obj_pre = torch.nan_to_num(non_obj_pre, nan=0.5, posinf=1.0, neginf=0.0).clamp(1e-6, 1 - 1e-6)
             non_obj_loss = F.binary_cross_entropy(non_obj_pre, torch.zeros_like(non_obj_pre), reduction="mean")
-            loss_pb += (cost_matrix_all_pf / num_tracks) + non_obj_loss
+            loss_pv = (cost_matrix_all_pf / num_tracks) + non_obj_loss
+            loss_pb += loss_pv
+            if torch.isnan(loss_pv):
+                print("Tracks", num_tracks)
+                continue
         else:
             non_obj_pre = pred_classes[b, :, :]
             non_obj_pre = torch.nan_to_num(non_obj_pre, nan=0.5, posinf=1.0, neginf=0.0).clamp(1e-6, 1 - 1e-6)

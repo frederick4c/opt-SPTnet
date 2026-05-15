@@ -28,6 +28,25 @@ def get_num_queries(ckpt_path=None, state_dict=None):
     raise ValueError("query_embed.weight not found")
 
 
+def get_num_frames(ckpt_path=None, state_dict=None):
+    """Infer the model frame count from `conv_temp.weight`.
+
+    Provide either a checkpoint path or an already-loaded state dict. The
+    current SPTnet architecture stores the expected number of frames as the
+    output channel count of the temporal `1x1` convolution.
+    """
+    if state_dict is None:
+        if ckpt_path is None:
+            raise ValueError("Either ckpt_path or state_dict must be provided.")
+        ckpt = torch.load(ckpt_path, map_location="cpu")
+        state_dict = extract_state_dict(ckpt)
+
+    for key, value in state_dict.items():
+        if "conv_temp.weight" in key:
+            return value.shape[0]
+    raise ValueError("conv_temp.weight not found")
+
+
 def normalize_state_dict_keys(state_dict, model):
     """Handle common DataParallel `module.` prefix mismatches."""
     if not isinstance(state_dict, dict):
