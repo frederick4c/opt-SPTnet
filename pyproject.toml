@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sptnet"
+version = "0.1.0"
+description = "SPTnet models, datasets, training, and inference utilities"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "h5py",
+    "matplotlib",
+    "numpy",
+    "positional-encodings[pytorch]",
+    "scipy",
+    "tifffile",
+    "torch",
+    "tqdm",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

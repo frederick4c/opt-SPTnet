@@ -1,0 +1,13 @@
+# cache
+__pycache__
+.DS_Store
+
+
+# slurm files
+slurm/
+
+# notebooks
+*.ipynb
+
+# big files
+CRLB_H_D_frame.mat
