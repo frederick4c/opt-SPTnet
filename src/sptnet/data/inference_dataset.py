@@ -104,7 +104,7 @@ class ERDataset(HDF5DatasetMixin, Dataset):
 
 
 class FileSampleDataset(Dataset):
-    """Flatten MAT/TIFF files into inference samples grouped by video shape.
+    """Flatten HDF5/TIFF files into inference samples grouped by video shape.
 
     Each item includes the video array plus metadata needed to write results
     back to one output file per original input file. Shape groups are recorded

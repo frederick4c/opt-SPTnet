@@ -25,8 +25,18 @@ import numpy as np
 from scipy.signal import convolve2d
 
 
+DEFAULT_OUTPUT_EXTENSION = ".h5"
+
+
 @dataclass(frozen=True)
 class SimulationParams:
+    """High-level simulation settings for generated training videos.
+
+    The defaults match the headless CSD3 MATLAB generator. Values can be
+    supplied directly in Python or read from ``SPT_*`` environment variables
+    with :func:`params_from_environment`.
+    """
+
     num_files: int = 10
     videos_per_file: int = 100
     frames: int = 30
@@ -44,6 +54,13 @@ class SimulationParams:
 
 @dataclass(frozen=True)
 class PSFParams:
+    """Optical, background, and photon-count settings for PSF rendering.
+
+    Units follow the MATLAB PSF toolbox: wavelengths and pixel size are in
+    microns, OTF sigmas are in reciprocal microns, and particle coordinates are
+    in camera pixels relative to the image centre.
+    """
+
     na: float = 1.49
     wavelength: float = 0.69
     refractive_index: float = 1.518
@@ -167,7 +184,14 @@ def _wyant_zernike_matrix(
 
 
 class ZernikePSF:
-    """Python port of the MATLAB ``PSF_zernike`` path used by the generator."""
+    """Fourier PSF renderer using the MATLAB toolbox's Zernike pupil model.
+
+    This class ports the subset of ``PSF_zernike`` needed for SPTnet training
+    data: grid precomputation, Wyant-ordered pupil generation, and normal PSF
+    rendering from emitter ``Xpos``, ``Ypos``, and ``Zpos`` arrays. Index
+    mismatch PSFs are intentionally not included because the training generator
+    does not call that MATLAB path.
+    """
 
     def __init__(
         self,
@@ -206,6 +230,23 @@ class ZernikePSF:
         self.norm_parameter = float(np.sum(self.pupil_mag))
 
     def generate(self, x_positions: np.ndarray, y_positions: np.ndarray, z_positions: np.ndarray) -> np.ndarray:
+        """Render PSF frames for the supplied particle positions.
+
+        Parameters
+        ----------
+        x_positions, y_positions:
+            Particle positions in pixels relative to image centre. Non-finite
+            positions produce all-zero frames, matching inactive trajectory
+            slots in the MATLAB generator.
+        z_positions:
+            Axial particle positions in microns.
+
+        Returns
+        -------
+        np.ndarray
+            Array with shape ``(N, box_size, box_size)``.
+        """
+
         n_frames = len(x_positions)
         psfs = np.zeros((n_frames, self.box_size, self.box_size), dtype=np.float64)
         start = self.psf_size // 2 - self.box_size // 2
@@ -227,6 +268,12 @@ class ZernikePSF:
 
 
 def make_otf_rescale_kernel(size: int, pixel_size: float, sigma_x: float, sigma_y: float) -> np.ndarray:
+    """Create the real-space Gaussian OTF-rescale kernel.
+
+    The formula and crop size follow the MATLAB ``OTFrescale.scaleRspace``
+    implementation used by ``PSF_zernike.scalePSF('normal')``.
+    """
+
     cropsize = min(29, size)
     sigma_xr = 1.0 / (2.0 * np.pi * sigma_x)
     sigma_yr = 1.0 / (2.0 * np.pi * sigma_y)
@@ -248,6 +295,8 @@ def make_otf_rescale_kernel(size: int, pixel_size: float, sigma_x: float, sigma_
 
 
 def apply_otf_rescale(psfs: np.ndarray, kernel: np.ndarray) -> np.ndarray:
+    """Convolve each PSF frame with an OTF-rescale kernel."""
+
     output = np.empty_like(psfs, dtype=np.float64)
     for idx in range(psfs.shape[0]):
         output[idx] = convolve2d(psfs[idx], kernel, mode="same", boundary="fill", fillvalue=0)
@@ -260,6 +309,12 @@ def fractional_brownian_motion_2d(
     diffusion: float,
     rng: np.random.Generator,
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Generate a two-dimensional fractional Brownian motion trajectory.
+
+    The covariance and ``sqrt(2 * diffusion)`` scaling match the MATLAB helper
+    embedded in the original SPTnet training-data generator.
+    """
+
     t = np.arange(1, steps + 1, dtype=np.float64)[:, None]
     s = np.arange(1, steps + 1, dtype=np.float64)[None, :]
     covariance = 0.5 * (t ** (2 * hurst) + s ** (2 * hurst) - np.abs(t - s) ** (2 * hurst))
@@ -279,6 +334,13 @@ def uniform_duration_and_present(
     max_duration: int,
     rng: np.random.Generator,
 ) -> list[tuple[int, int, int]]:
+    """Assign track durations and starts with balanced frame occupancy.
+
+    Returns zero-based ``(start, end, duration)`` tuples in the original
+    particle order. This is the Python equivalent of the MATLAB
+    ``uniform_duration_and_present`` helper.
+    """
+
     occupancy = np.zeros(frames, dtype=np.float64)
     durations = rng.integers(min_duration, max_duration + 1, size=num_particles)
     durations = np.minimum(durations, frames)
@@ -353,6 +415,8 @@ def _perlin_noise_generate(size: int, x_grid: int, y_grid: int, rng: np.random.G
 
 
 def perlin_noise(size: int, rng: np.random.Generator) -> np.ndarray:
+    """Generate a normalized Perlin-like background image in ``[0, 1]``."""
+
     zmat = np.zeros((size, size), dtype=np.float64)
     for level in range(1, int(np.floor(np.log2(size)))):
         weight = rng.random()
@@ -411,6 +475,13 @@ def write_training_file(
     seed: int | None,
     file_index: int,
 ) -> None:
+    """Write a generated training batch as an HDF5 file.
+
+    The file uses HDF5 object references to represent MATLAB-style cell arrays
+    for labels, so both ``.h5`` and MATLAB v7.3 ``.mat`` files can be read by
+    :class:`sptnet.data.mat_dataset.TransformerMatDataset`.
+    """
+
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(output_path, "w") as handle:
@@ -500,6 +571,23 @@ def generate_training_file(
     seed: int | None,
     file_index: int = 1,
 ) -> Path:
+    """Generate one HDF5 training file.
+
+    Parameters
+    ----------
+    output_path:
+        Destination path. New Python-generated files typically use
+        ``trainingvideos_<index>.h5``; ``.mat`` remains supported for MATLAB
+        v7.3-compatible naming.
+    sim_params, psf_params:
+        Simulation and optical settings.
+    seed:
+        Seed for deterministic Python output. ``None`` uses NumPy's entropy
+        source.
+    file_index:
+        Stored in output metadata for provenance.
+    """
+
     rng = np.random.default_rng(seed)
     psf_model = ZernikePSF(psf_params, sim_params.image_dims)
     otf_kernel = make_otf_rescale_kernel(
@@ -624,14 +712,24 @@ def generate_training_data(
     sim_params: SimulationParams,
     psf_params: PSFParams,
     seed: int | None,
+    output_extension: str = DEFAULT_OUTPUT_EXTENSION,
     progress: bool = True,
 ) -> list[Path]:
+    """Generate a sequence of training files in ``output_dir``.
+
+    If ``seed`` is provided, each file uses ``seed + file_offset`` so array
+    jobs and repeated runs are deterministic while still producing distinct
+    files.
+    """
+
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+    if not output_extension.startswith("."):
+        output_extension = f".{output_extension}"
     paths: list[Path] = []
     for file_offset in range(sim_params.num_files):
         file_index = sim_params.file_start + file_offset
-        path = output_dir / f"trainingvideos_{file_index}.mat"
+        path = output_dir / f"trainingvideos_{file_index}{output_extension}"
         start = time.time()
         if progress:
             print(f"Generating file {file_index} ({file_offset + 1}/{sim_params.num_files})...")
@@ -652,7 +750,12 @@ def generate_training_data(
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Generate deterministic SPTnet training data.")
-    parser.add_argument("--output-dir", default=None, help="Directory for generated HDF5 .mat files.")
+    parser.add_argument("--output-dir", default=None, help="Directory for generated HDF5 files.")
+    parser.add_argument(
+        "--output-extension",
+        default=None,
+        help="Output file extension. Defaults to .h5; use .mat for MATLAB-compatible naming.",
+    )
     parser.add_argument("--seed", type=int, default=None, help="Deterministic seed. Overrides SPT_SEED.")
     parser.add_argument("--num-files", type=int, default=None, help="Number of files to generate.")
     parser.add_argument("--videos-per-file", type=int, default=None, help="Videos per generated file.")
@@ -709,16 +812,19 @@ def main(argv: list[str] | None = None) -> None:
     if args.output_dir is not None:
         output_dir = Path(args.output_dir)
     seed = env_seed if args.seed is None else args.seed
+    output_extension = args.output_extension or os.getenv("SPT_OUTPUT_EXTENSION") or DEFAULT_OUTPUT_EXTENSION
 
     print("SPTnet Python training-data generator starting.")
     print(f"Files: {sim_params.num_files}, videos/file: {sim_params.videos_per_file}, frames: {sim_params.frames}.")
     print(f"Image dims: {sim_params.image_dims}, seed: {'shuffle' if seed is None else seed}.")
+    print(f"Output extension: {output_extension}")
     print(f"Saving to {output_dir}")
     generate_training_data(
         output_dir,
         sim_params=sim_params,
         psf_params=psf_params,
         seed=seed,
+        output_extension=output_extension,
         progress=not args.no_progress,
     )
     print("Simulation Completed!")

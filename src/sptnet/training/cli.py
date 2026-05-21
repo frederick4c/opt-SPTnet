@@ -113,7 +113,7 @@ def parse_args():
     p.add_argument('--resume-optimizer', type=str, default='', help="path to optimizer state; defaults to <resume>optimizer_stat")
     p.add_argument('--resume-history', type=str, default='', help="path to existing loss_history.csv; defaults to output model dir CSV")
     p.add_argument('--crlb-path', type=str, default='', help="path to CRLB_H_D_frame.mat; defaults to ./CRLB_H_D_frame.mat")
-    p.add_argument('-d', '--data', type=str, nargs='+', help="Path to training data .mat files")
+    p.add_argument('-d', '--data', type=str, nargs='+', help="Path to training data HDF5 files (.h5/.hdf5 or MATLAB v7.3 .mat)")
     return p.parse_args()
 
 

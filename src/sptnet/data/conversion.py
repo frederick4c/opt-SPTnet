@@ -21,7 +21,7 @@ TARGET_TIFF_AXES = "TYX"
 
 @dataclass(frozen=True)
 class TiffConversionResult:
-    """Summary for one TIFF written or skipped during MAT conversion."""
+    """Summary for one TIFF written or skipped during HDF5 conversion."""
 
     input_path: Path
     output_path: Path
@@ -114,10 +114,11 @@ def convert_mat_file_to_tiff(
     dtype: str = "float32",
     overwrite: bool = True,
 ) -> List[TiffConversionResult]:
-    """Convert one HDF5-backed MAT file into ImageJ-compatible TIFF stacks.
+    """Convert one HDF5 movie file into ImageJ-compatible TIFF stacks.
 
     By default, 3D arrays are interpreted as ``T,Y,X`` and 4D arrays as
-    ``N,T,Y,X``. For MATLAB-origin files whose axes appear in a different
+    ``N,T,Y,X``. This supports native ``.h5``/``.hdf5`` files and MATLAB v7.3
+    ``.mat`` files. For MATLAB-origin files whose axes appear in a different
     order through ``h5py``, pass ``input_axes`` explicitly, for example
     ``"NTXY"`` or ``"YXTN"``.
     """
@@ -173,6 +174,30 @@ def convert_mat_file_to_tiff(
     return results
 
 
+def convert_hdf5_file_to_tiff(
+    hdf5_path: os.PathLike,
+    output_dir: Optional[os.PathLike] = None,
+    *,
+    dataset_names: Sequence[str] = DEFAULT_DATASET_NAMES,
+    input_axes: Optional[str] = None,
+    dtype: str = "float32",
+    overwrite: bool = True,
+) -> List[TiffConversionResult]:
+    """Convert one native HDF5 or MATLAB v7.3 file into TIFF stacks.
+
+    This is the preferred public name. ``convert_mat_file_to_tiff`` remains as
+    a compatibility alias for older scripts and notebooks.
+    """
+    return convert_mat_file_to_tiff(
+        hdf5_path,
+        output_dir=output_dir,
+        dataset_names=dataset_names,
+        input_axes=input_axes,
+        dtype=dtype,
+        overwrite=overwrite,
+    )
+
+
 def convert_mat_files_to_tiff(
     mat_paths: Iterable[os.PathLike],
     output_dir: Optional[os.PathLike] = None,
@@ -182,7 +207,7 @@ def convert_mat_files_to_tiff(
     dtype: str = "float32",
     overwrite: bool = True,
 ) -> List[TiffConversionResult]:
-    """Convert multiple HDF5-backed MAT files into TIFF stacks."""
+    """Convert multiple HDF5 movie files into TIFF stacks."""
     results: List[TiffConversionResult] = []
     for mat_path in mat_paths:
         results.extend(
@@ -198,15 +223,35 @@ def convert_mat_files_to_tiff(
     return results
 
 
+def convert_hdf5_files_to_tiff(
+    hdf5_paths: Iterable[os.PathLike],
+    output_dir: Optional[os.PathLike] = None,
+    *,
+    dataset_names: Sequence[str] = DEFAULT_DATASET_NAMES,
+    input_axes: Optional[str] = None,
+    dtype: str = "float32",
+    overwrite: bool = True,
+) -> List[TiffConversionResult]:
+    """Convert multiple native HDF5 or MATLAB v7.3 files into TIFF stacks."""
+    return convert_mat_files_to_tiff(
+        hdf5_paths,
+        output_dir=output_dir,
+        dataset_names=dataset_names,
+        input_axes=input_axes,
+        dtype=dtype,
+        overwrite=overwrite,
+    )
+
+
 def build_arg_parser() -> argparse.ArgumentParser:
-    """Build the command-line parser for MAT-to-TIFF conversion."""
+    """Build the command-line parser for HDF5-to-TIFF conversion."""
     parser = argparse.ArgumentParser(
-        description="Convert SPTnet HDF5/MAT movie datasets into ImageJ-compatible TIFF stacks."
+        description="Convert SPTnet HDF5 movie datasets into ImageJ-compatible TIFF stacks."
     )
     parser.add_argument(
         "mat_files",
         nargs="+",
-        help="MAT file paths or glob patterns.",
+        help="HDF5 file paths or glob patterns (.h5/.hdf5 or MATLAB v7.3 .mat).",
     )
     parser.add_argument(
         "-o",
@@ -245,13 +290,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
-    """CLI entry point for ``sptnet-mat-to-tiff``."""
+    """CLI entry point for HDF5-to-TIFF conversion commands."""
     parser = build_arg_parser()
     args = parser.parse_args(argv)
 
     mat_paths = expand_file_patterns(args.mat_files)
     if not mat_paths:
-        parser.error("No MAT files matched the provided paths or patterns.")
+        parser.error("No HDF5 files matched the provided paths or patterns.")
 
     output_dir = args.output_dir
     if output_dir is None:

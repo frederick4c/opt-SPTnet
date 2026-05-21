@@ -59,20 +59,20 @@ if [[ ! -f "src/sptnet/inference/cli.py" ]]; then
 fi
 
 export SPT_MODEL_PATH="${SPT_MODEL_PATH:-./Trained_models/full_run/trained_model}"
-export SPT_INFER_DATA="${SPT_INFER_DATA:-./TestData/testdata_*.mat}"
+export SPT_INFER_DATA="${SPT_INFER_DATA:-./TestData/testdata_*.h5}"
 export SPT_INFER_BATCH_SIZE="${SPT_INFER_BATCH_SIZE:-8}"
-export SPT_MAT_CLIP_INDEX="${SPT_MAT_CLIP_INDEX:-0}"
+export SPT_HDF5_CLIP_INDEX="${SPT_HDF5_CLIP_INDEX:-${SPT_MAT_CLIP_INDEX:-0}}"
 
 log "Starting Parallel SPTnet inference on CSD3 Ampere node..."
 log "Model path: $SPT_MODEL_PATH"
 log "Inference data pattern: $SPT_INFER_DATA"
 log "Batch size: $SPT_INFER_BATCH_SIZE"
-log "MAT clip index: $SPT_MAT_CLIP_INDEX"
+log "HDF5 clip index: $SPT_HDF5_CLIP_INDEX"
 
 python -u -m sptnet.inference.cli \
     -m "$SPT_MODEL_PATH" \
     -d "$SPT_INFER_DATA" \
     -b "$SPT_INFER_BATCH_SIZE" \
-    --mat-clip-index "$SPT_MAT_CLIP_INDEX"
+    --hdf5-clip-index "$SPT_HDF5_CLIP_INDEX"
 
 log "Inference job completed."

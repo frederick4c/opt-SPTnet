@@ -1,4 +1,4 @@
-"""MAT/HDF5 training dataset for SPTnet."""
+"""HDF5 training dataset for SPTnet."""
 
 import h5py
 import numpy as np
@@ -6,7 +6,7 @@ import torch
 
 
 class TransformerMatDataset(torch.utils.data.Dataset):
-    """Read SPTnet training samples from MATLAB v7.3/HDF5 files.
+    """Read SPTnet training samples from HDF5 or MATLAB v7.3 files.
 
     The dataset supports labeled simulation files containing `Hlabel`,
     `Clabel`, `traceposition`, and `timelapsedata`, plus unlabeled files that
@@ -18,7 +18,7 @@ class TransformerMatDataset(torch.utils.data.Dataset):
     config:
         Object with `num_queries` and `image_size` attributes.
     dataset_path:
-        Path to a `.mat`/HDF5 file.
+        Path to a `.h5`, `.hdf5`, or MATLAB v7.3 `.mat` file.
     """
 
     def __init__(self, config, dataset_path):

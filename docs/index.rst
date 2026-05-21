@@ -8,6 +8,7 @@ utilities, and inference helpers used in single-particle tracking workflows.
    :maxdepth: 2
    :caption: Contents
 
+   training_data_generation
    api/index
 
 API Reference

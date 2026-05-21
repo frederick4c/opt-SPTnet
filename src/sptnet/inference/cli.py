@@ -35,13 +35,15 @@ else:
 def parse_args():
     p = argparse.ArgumentParser(description="SPTnet Parallel Inference on Colab/CSD3")
     p.add_argument('-m', '--model-path', type=str, required=True, help="Path to the trained model file (e.g. .../trained_model)")
-    p.add_argument('-d', '--data', type=str, nargs='+', required=True, help="Path(s) to test data files (.mat or .tif)")
+    p.add_argument('-d', '--data', type=str, nargs='+', required=True, help="Path(s) to test data files (.h5/.hdf5, MATLAB v7.3 .mat, or .tif)")
     p.add_argument('-b', '--batch-size', type=int, default=8, help="Batch size for parallel inference (default: 8)")
     p.add_argument(
+        '--hdf5-clip-index',
         '--mat-clip-index',
+        dest='mat_clip_index',
         type=int,
         default=0,
-        help="For 4D MAT files (N,T,H,W), only run this clip index (default: 0).",
+        help="For 4D HDF5 files (N,T,H,W), only run this clip index (default: 0).",
     )
     return p.parse_args()
 
@@ -94,7 +96,7 @@ def main():
     infer_batch_size = args.batch_size
 
     print("Initializing FileSampleDataset...")
-    print(f"MAT clip index for 4D files: {args.mat_clip_index}")
+    print(f"HDF5 clip index for 4D files: {args.mat_clip_index}")
     all_samples = FileSampleDataset(filename_test, mat_clip_index=args.mat_clip_index)
     bad_shapes = [shape_key for shape_key in all_samples.shape_groups if shape_key[0] != num_frames]
     if bad_shapes:

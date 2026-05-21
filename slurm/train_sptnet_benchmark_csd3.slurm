@@ -29,7 +29,7 @@ export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
 export PYTHONPATH="$SLURM_SUBMIT_DIR/src:${PYTHONPATH:-}"
 export SPT_NUM_WORKERS="${SPT_NUM_WORKERS:-2}"
 
-# With many .mat files, h5py/PyTorch can keep many file handles open.
+# With many HDF5 files, h5py/PyTorch can keep many file handles open.
 ulimit -n 65536
 
 # ---------------------------------------------------------------------
@@ -37,7 +37,7 @@ ulimit -n 65536
 # Override these with sbatch --export=ALL,NAME=value,...
 # ---------------------------------------------------------------------
 
-export SPT_TRAIN_DATA="${SPT_TRAIN_DATA:-./TrainData/*.mat}"
+export SPT_TRAIN_DATA="${SPT_TRAIN_DATA:-./TrainData/*.h5}"
 export SPT_MAX_FILES="${SPT_MAX_FILES:-0}"
 export SPT_RUN_NAME="${SPT_RUN_NAME:-benchmark}"
 export SPT_MODEL_BASE_DIR="${SPT_MODEL_BASE_DIR:-./Trained_models/benchmarks}"

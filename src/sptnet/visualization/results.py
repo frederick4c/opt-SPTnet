@@ -1,53 +1,34 @@
-"""
-Visualize SPTnet inference outputs.
+"""Visualize SPTnet inference outputs in Jupyter notebooks.
 
-Designed to run inside a Jupyter notebook. Import and call `show_video()`.
+Typical MAT usage with ground truth::
 
-Usage in a notebook cell (MAT + GT; same N in test/result):
     from sptnet.visualization import show_video
     from IPython.display import HTML
 
     ani = show_video(
-        test_data_path='TestData/Example_testdata.mat',
-        results_path='result_Example_testdata.mat',
+        test_data_path="TestData/Example_testdata.mat",
+        results_path="result_Example_testdata.mat",
         video_idx=0,
         threshold=0.50,
     )
     HTML(ani.to_jshtml())
 
-Or loop over several videos:
-    for i in range(5):
-        ani = show_video(..., video_idx=i)
-        display(HTML(ani.to_jshtml()))
+For per-TIFF CSD3 inference outputs without ground truth::
 
-Usage for per-TIFF CSD3 inference outputs (no GT):
     ani = show_video(
-        test_data_path='TestData/tiff_output/Example_testdata_000.tif',
-        results_path='Trained_models/full_run/inference_results/result_Example_testdata_000.mat',
+        test_data_path="TestData/tiff_output/Example_testdata_000.tif",
+        results_path="Trained_models/full_run/inference_results/result_Example_testdata_000.mat",
         threshold=0.50,
     )
     HTML(ani.to_jshtml())
 
-Or auto-match TIFF/result pairs by index:
-    from sptnet.visualization import show_tiff_result_by_index
-    ani = show_tiff_result_by_index(pair_index=0, threshold=0.50)
-    HTML(ani.to_jshtml())
+Recommended helper for CSD3 MAT-first-clip inference outputs::
 
-To overlay ground truth for TIFF input:
-    ani = show_video(
-        test_data_path='TestData/tiff_output/Example_testdata_000.tif',
-        results_path='Trained_models/full_run/inference_results/result_Example_testdata_000.mat',
-        gt_data_path='TestData/Example_testdata.mat',  # contains traceposition/Hlabel/Clabel
-        # by default, GT video index is auto-matched by pixel similarity
-        threshold=0.50,
-    )
-    HTML(ani.to_jshtml())
-
-Recommended for CSD3 MAT-first-clip inference outputs:
     from sptnet.visualization import show_mat_result_by_index
+
     ani = show_mat_result_by_index(
-        pair_index=0,  # testdata_000 + result_testdata_000
-        mat_clip_index=0,  # first clip in timelapsedata
+        pair_index=0,
+        mat_clip_index=0,
         threshold=0.50,
     )
     HTML(ani.to_jshtml())

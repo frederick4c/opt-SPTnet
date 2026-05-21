@@ -38,6 +38,7 @@ fi
 export SPT_NUM_FILES="${SPT_NUM_FILES:-10}"
 export SPT_VIDEOS_PER_FILE="${SPT_VIDEOS_PER_FILE:-100}"
 export SPT_OUTPUT_DIR="${SPT_OUTPUT_DIR:-$SLURM_SUBMIT_DIR/DenseTrain}"
+export SPT_OUTPUT_EXTENSION="${SPT_OUTPUT_EXTENSION:-.h5}"
 
 # If submitted as an array, each task writes a separate contiguous block.
 # Example: --array=1-100 with SPT_NUM_FILES=10 writes files 1-1000.
@@ -52,6 +53,7 @@ echo "Output dir: $SPT_OUTPUT_DIR"
 echo "Files: $SPT_NUM_FILES, videos/file: $SPT_VIDEOS_PER_FILE"
 echo "File start: ${SPT_FILE_START:-1}"
 echo "Seed: ${SPT_SEED:-shuffle}"
+echo "Output extension: $SPT_OUTPUT_EXTENSION"
 
 python -u -m sptnet.training.data_generator
 

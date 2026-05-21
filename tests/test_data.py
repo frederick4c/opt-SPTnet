@@ -12,25 +12,36 @@ from sptnet.data.loaders import default_num_workers
 from sptnet.data.mat_dataset import TransformerMatDataset
 
 
-def _write_mat(path, name, data):
+def _write_hdf5(path, name, data):
     with h5py.File(path, "w") as handle:
         handle.create_dataset(name, data=data)
 
 
-def test_file_sample_dataset_reads_mat_and_tiff_records(tmp_path):
-    mat_path = tmp_path / "clips.mat"
+def test_file_sample_dataset_reads_hdf5_and_tiff_records(tmp_path):
+    hdf5_path = tmp_path / "clips.h5"
     tif_path = tmp_path / "movie.tif"
-    mat_data = np.arange(2 * 3 * 4 * 5, dtype=np.float32).reshape(2, 3, 4, 5)
+    hdf5_data = np.arange(2 * 3 * 4 * 5, dtype=np.float32).reshape(2, 3, 4, 5)
     tif_data = np.arange(3 * 2 * 2, dtype=np.uint16).reshape(3, 2, 2)
-    _write_mat(mat_path, "timelapsedata", mat_data)
+    _write_hdf5(hdf5_path, "timelapsedata", hdf5_data)
     tifffile.imwrite(tif_path, tif_data)
 
-    dataset = FileSampleDataset([str(mat_path), str(tif_path)], mat_clip_index=1)
+    dataset = FileSampleDataset([str(hdf5_path), str(tif_path)], mat_clip_index=1)
 
     assert len(dataset) == 2
     assert set(dataset.shape_groups) == {(3, 4, 5), (3, 2, 2)}
-    np.testing.assert_array_equal(dataset[0]["video"], mat_data[1])
+    np.testing.assert_array_equal(dataset[0]["video"], hdf5_data[1])
     np.testing.assert_array_equal(dataset[1]["video"], tif_data.astype(np.float32))
+
+
+def test_file_sample_dataset_reads_legacy_mat_records(tmp_path):
+    mat_path = tmp_path / "clips.mat"
+    mat_data = np.arange(3 * 4 * 5, dtype=np.float32).reshape(3, 4, 5)
+    _write_hdf5(mat_path, "timelapsedata", mat_data)
+
+    dataset = FileSampleDataset([str(mat_path)])
+
+    assert len(dataset) == 1
+    np.testing.assert_array_equal(dataset[0]["video"], mat_data)
 
 
 def test_file_sample_dataset_rejects_single_frame_tiff(tmp_path):
@@ -73,11 +84,11 @@ def test_default_num_workers_honors_environment(monkeypatch):
 
 
 def test_transformer_mat_dataset_reads_unlabeled_single_movie(tmp_path):
-    mat_path = tmp_path / "unlabeled.mat"
+    hdf5_path = tmp_path / "unlabeled.h5"
     video = np.arange(3 * 4 * 5, dtype=np.float32).reshape(3, 4, 5)
-    _write_mat(mat_path, "timelapsedata", video)
+    _write_hdf5(hdf5_path, "timelapsedata", video)
 
-    with TransformerMatDataset(SimpleNamespace(num_queries=4, image_size=8), mat_path) as dataset:
+    with TransformerMatDataset(SimpleNamespace(num_queries=4, image_size=8), hdf5_path) as dataset:
         assert len(dataset) == 1
         np.testing.assert_array_equal(dataset[0]["video"], video)
         with pytest.raises(IndexError):

@@ -4,9 +4,11 @@ import h5py
 import numpy as np
 
 from sptnet.training.data_generator import (
+    DEFAULT_OUTPUT_EXTENSION,
     PSFParams,
     SimulationParams,
     ZernikePSF,
+    generate_training_data,
     generate_training_file,
     make_otf_rescale_kernel,
     perlin_noise,
@@ -68,8 +70,8 @@ def test_otf_kernel_and_perlin_noise_are_bounded():
 def test_generator_is_deterministic_for_same_seed(tmp_path):
     sim = _tiny_sim_params()
     psf = PSFParams(psf_size=32)
-    path_a = tmp_path / "a" / "trainingvideos_1.mat"
-    path_b = tmp_path / "b" / "trainingvideos_1.mat"
+    path_a = tmp_path / "a" / "trainingvideos_1.h5"
+    path_b = tmp_path / "b" / "trainingvideos_1.h5"
 
     generate_training_file(path_a, sim_params=sim, psf_params=psf, seed=42, file_index=1)
     generate_training_file(path_b, sim_params=sim, psf_params=psf, seed=42, file_index=1)
@@ -91,8 +93,8 @@ def test_generator_is_deterministic_for_same_seed(tmp_path):
 def test_generator_changes_for_different_seed(tmp_path):
     sim = _tiny_sim_params()
     psf = PSFParams(psf_size=32)
-    path_a = tmp_path / "trainingvideos_1.mat"
-    path_b = tmp_path / "trainingvideos_2.mat"
+    path_a = tmp_path / "trainingvideos_1.h5"
+    path_b = tmp_path / "trainingvideos_2.h5"
 
     generate_training_file(path_a, sim_params=sim, psf_params=psf, seed=42, file_index=1)
     generate_training_file(path_b, sim_params=sim, psf_params=psf, seed=43, file_index=2)
@@ -103,7 +105,7 @@ def test_generator_changes_for_different_seed(tmp_path):
 
 def test_generated_hdf5_schema_matches_training_loader_expectations(tmp_path):
     sim = _tiny_sim_params()
-    path = tmp_path / "trainingvideos_1.mat"
+    path = tmp_path / "trainingvideos_1.h5"
 
     generate_training_file(path, sim_params=sim, psf_params=PSFParams(psf_size=32), seed=7, file_index=1)
 
@@ -123,3 +125,32 @@ def test_generated_hdf5_schema_matches_training_loader_expectations(tmp_path):
     assert sample["video"].shape == (3, 8, 8)
     assert sample["position"].shape == (3, 4, 2)
     assert sample["class_label"].shape == (3, 4)
+
+
+def test_generate_training_data_defaults_to_h5_extension(tmp_path):
+    sim = _tiny_sim_params(videos_per_file=1, p_num_max=1)
+
+    paths = generate_training_data(
+        tmp_path,
+        sim_params=sim,
+        psf_params=PSFParams(psf_size=32),
+        seed=11,
+        progress=False,
+    )
+
+    assert DEFAULT_OUTPUT_EXTENSION == ".h5"
+    assert paths == [tmp_path / "trainingvideos_1.h5"]
+    assert paths[0].is_file()
+
+
+def test_legacy_mat_extension_remains_supported(tmp_path):
+    sim = _tiny_sim_params(videos_per_file=1, p_num_max=1)
+    path = tmp_path / "trainingvideos_legacy.mat"
+
+    generate_training_file(path, sim_params=sim, psf_params=PSFParams(psf_size=32), seed=13, file_index=1)
+
+    with h5py.File(path, "r") as handle:
+        assert handle["timelapsedata"].shape == (1, 3, 8, 8)
+
+    sample = _read_first_sample(path)
+    assert sample["video"].shape == (3, 8, 8)

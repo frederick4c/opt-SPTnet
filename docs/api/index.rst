@@ -22,5 +22,6 @@ API Reference
    sptnet.training.cli
    sptnet.training.losses
    sptnet.training.trainer
+   sptnet.training.data_generator
    sptnet.visualization
    sptnet.visualization.results

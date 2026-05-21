@@ -6,7 +6,7 @@ Refactor of SPTnet (https://github.com/HuanglabPurdue/SPTnet) to optimise the co
 
 The refactored package lives under `src/sptnet/`. 
 
-## Convert MAT Movies to TIFF
+## Convert HDF5 Movies to TIFF
 
 Install the package in editable mode first:
 
@@ -14,21 +14,27 @@ Install the package in editable mode first:
 python -m pip install -e .
 ```
 
-MAT/HDF5 files containing `ims` or `timelapsedata` can be converted to
-ImageJ-compatible TIFF stacks:
+HDF5 files containing `ims` or `timelapsedata` can be converted to
+ImageJ-compatible TIFF stacks. This includes both native h5py-readable
+`.h5`/`.hdf5` files and MATLAB v7.3 `.mat` files because they are HDF5-backed:
 
 ```bash
-sptnet-mat-to-tiff "data/*.mat" --output-dir data/tiff_output
+sptnet-hdf5-to-tiff "data/*.h5" --output-dir data/tiff_output
 ```
+
+The older `sptnet-mat-to-tiff` command name is kept as a compatibility alias.
 
 ## Training and Inference
 
 The package entry points replace the old root-level scripts:
 
 ```bash
-sptnet-train --data "training/*.mat" --model-dir runs/example
-sptnet-inference --model-path runs/example/trained_model --data "test/*.mat"
+sptnet-train --data "training/*.h5" --model-dir runs/example
+sptnet-inference --model-path runs/example/trained_model --data "test/*.h5"
 ```
+
+Existing MATLAB v7.3 `.mat` training/test files remain supported by the same
+commands; pass a `*.mat` glob instead when using older data.
 
 The CRLB matrix used by training can be regenerated without MATLAB:
 
@@ -41,6 +47,20 @@ save it to the configured CRLB path, and reuse it on later runs. Existing matric
 are checked against the current training frame count, diffusion range, and sampled
 reference values before reuse.
 
+## Generate Training Data
+
+The MATLAB training-data generator has a deterministic Python replacement:
+
+```bash
+sptnet-generate-training-data --seed 123 --num-files 1 --videos-per-file 100
+```
+
+It writes native h5py-readable `.h5` HDF5 files by default and can also write
+HDF5-backed `.mat` files for compatibility via `--output-extension .mat`. See
+the Sphinx page `docs/training_data_generation.rst` for supported environment
+variables, reproducibility notes, and references for the PSF/Zernike/Perlin
+model components ported from the original MATLAB code.
+
 ## Visualize Inference Results
 
 In a notebook, load the packaged visualization helper:
@@ -50,7 +70,7 @@ from sptnet.visualization import show_video
 from IPython.display import HTML
 
 ani = show_video(
-    test_data_path="test/example.mat",
+    test_data_path="test/example.h5",
     results_path="runs/example/inference_results/result_example.mat",
     threshold=0.5,
 )
@@ -77,6 +97,6 @@ python -m pip install -e ".[test]"
 pytest
 ```
 
-The tests use small synthetic MAT/TIFF files and tensors, so they should run
+The tests use small synthetic HDF5/TIFF files and tensors, so they should run
 comfortably on a laptop. Torch-backed tests skip automatically in minimal
 environments where PyTorch is not installed.

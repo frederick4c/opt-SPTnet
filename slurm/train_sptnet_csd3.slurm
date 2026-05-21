@@ -50,7 +50,7 @@ if [[ ! -f "src/sptnet/training/cli.py" ]]; then
 fi
 
 export SPT_MODEL_DIR="${SPT_MODEL_DIR:-./Trained_models}"
-export SPT_TRAIN_DATA="${SPT_TRAIN_DATA:-./TestData/eg_trainingvideos_*.mat}"
+export SPT_TRAIN_DATA="${SPT_TRAIN_DATA:-./TestData/eg_trainingvideos_*.h5}"
 export SPT_GPUS="${SPT_GPUS:-1}"
 export SPT_BATCH_SIZE="${SPT_BATCH_SIZE:-16}"
 export SPT_QUERY="${SPT_QUERY:-20}"

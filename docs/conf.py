@@ -31,6 +31,9 @@ napoleon_numpy_docstring = True
 
 autodoc_mock_imports = [
     "h5py",
+    "matplotlib",
+    "matplotlib.animation",
+    "matplotlib.pyplot",
     "numpy",
     "positional_encodings",
     "scipy",

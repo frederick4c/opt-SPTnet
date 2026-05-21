@@ -28,6 +28,7 @@ test = [
 ]
 
 [project.scripts]
+sptnet-hdf5-to-tiff = "sptnet.data.conversion:main"
 sptnet-mat-to-tiff = "sptnet.data.conversion:main"
 sptnet-compute-crlb = "sptnet.training.crlb:main"
 sptnet-generate-training-data = "sptnet.training.data_generator:main"
