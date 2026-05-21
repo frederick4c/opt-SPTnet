@@ -2,10 +2,11 @@
 __pycache__
 .DS_Store
 *.py[cod]
+.pytest_cache/
 
-
-# slurm files
-slurm/
+# slurm outputs
+slurm/*.out
+slurm/*.err
 
 # notebooks
 *.ipynb
@@ -16,3 +17,12 @@ docs/api/generated/
 
 # big files
 CRLB_H_D_frame.mat
+
+
+# notes
+*.md
+!README.md
+.codexrules
+
+# data
+testdata*

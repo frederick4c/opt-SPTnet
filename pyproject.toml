@@ -30,6 +30,7 @@ test = [
 [project.scripts]
 sptnet-mat-to-tiff = "sptnet.data.conversion:main"
 sptnet-compute-crlb = "sptnet.training.crlb:main"
+sptnet-generate-training-data = "sptnet.training.data_generator:main"
 sptnet-inference = "sptnet.inference.cli:main"
 sptnet-train = "sptnet.training.cli:main"
 
