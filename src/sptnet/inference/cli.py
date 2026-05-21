@@ -1,6 +1,4 @@
-# Deprecated: this root-level script is no longer used; use `sptnet-inference` from `sptnet.inference.cli`.
 import argparse
-import sys
 import os
 import glob
 import time
@@ -13,7 +11,6 @@ import scipy.io as sio
 import torch
 from torch.utils.data import DataLoader
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 from sptnet import SPTnet, Transformer, Transformer3d
 from sptnet.data import FileSampleDataset, SubsetByIndices, collate_inference
 from sptnet.inference import (

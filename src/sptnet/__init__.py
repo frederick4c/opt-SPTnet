@@ -1,10 +1,5 @@
 """SPTnet package."""
 
-from sptnet.data.mat_dataset import TransformerMatDataset
-from sptnet.models.backbone import BackBone, ResidualBlock
-from sptnet.models.sptnet import SPTnet
-from sptnet.models.transformers import Transformer, Transformer3d
-
 __all__ = [
     "BackBone",
     "ResidualBlock",
@@ -13,3 +8,25 @@ __all__ = [
     "Transformer3d",
     "TransformerMatDataset",
 ]
+
+_EXPORTS = {
+    "BackBone": ("sptnet.models.backbone", "BackBone"),
+    "ResidualBlock": ("sptnet.models.backbone", "ResidualBlock"),
+    "SPTnet": ("sptnet.models.sptnet", "SPTnet"),
+    "Transformer": ("sptnet.models.transformers", "Transformer"),
+    "Transformer3d": ("sptnet.models.transformers", "Transformer3d"),
+    "TransformerMatDataset": ("sptnet.data.mat_dataset", "TransformerMatDataset"),
+}
+
+
+def __getattr__(name):
+    """Lazily import public symbols so lightweight utilities stay lightweight."""
+    if name not in _EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    module_name, symbol_name = _EXPORTS[name]
+    from importlib import import_module
+
+    value = getattr(import_module(module_name), symbol_name)
+    globals()[name] = value
+    return value

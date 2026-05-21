@@ -1,10 +1,10 @@
 """
-Visualize SPTnet Outputs — Python equivalent of Visualize_SPTnet_Outputs.m
+Visualize SPTnet inference outputs.
 
 Designed to run inside a Jupyter notebook. Import and call `show_video()`.
 
 Usage in a notebook cell (MAT + GT; same N in test/result):
-    from inference_script import show_video
+    from sptnet.visualization import show_video
     from IPython.display import HTML
 
     ani = show_video(
@@ -29,7 +29,7 @@ Usage for per-TIFF CSD3 inference outputs (no GT):
     HTML(ani.to_jshtml())
 
 Or auto-match TIFF/result pairs by index:
-    from inference_script import show_tiff_result_by_index
+    from sptnet.visualization import show_tiff_result_by_index
     ani = show_tiff_result_by_index(pair_index=0, threshold=0.50)
     HTML(ani.to_jshtml())
 
@@ -44,7 +44,7 @@ To overlay ground truth for TIFF input:
     HTML(ani.to_jshtml())
 
 Recommended for CSD3 MAT-first-clip inference outputs:
-    from inference_script import show_mat_result_by_index
+    from sptnet.visualization import show_mat_result_by_index
     ani = show_mat_result_by_index(
         pair_index=0,  # testdata_000 + result_testdata_000
         mat_clip_index=0,  # first clip in timelapsedata
@@ -56,11 +56,13 @@ Recommended for CSD3 MAT-first-clip inference outputs:
 import os
 import glob
 import re
+import tempfile
 import numpy as np
 import h5py
 import scipy.io as sio
 import tifffile
 
+os.environ.setdefault("MPLCONFIGDIR", os.path.join(tempfile.gettempdir(), "sptnet-matplotlib"))
 import matplotlib
 matplotlib.use('Agg')   # headless — safe both in notebooks and on the cluster
 import matplotlib.pyplot as plt
@@ -621,7 +623,7 @@ def show_video(test_data_path, results_path,
     Load data and return a FuncAnimation for one video.
 
     Call from a notebook like:
-        from inference_script import show_video
+        from sptnet.visualization import show_video
         from IPython.display import HTML
 
         ani = show_video('TestData/Example_testdata.mat',
@@ -646,7 +648,7 @@ def show_video(test_data_path, results_path,
         Which sample in `gt_data_path` to use. If None and TIFF filename ends
         with `_<number>.tif`, that number is used.
     swap_gt_xy_for_tiff : bool
-        Legacy override for TIFF + external GT mode when auto-matching is off.
+        Manual override for TIFF + external GT mode when auto-matching is off.
     auto_match_gt_video : bool
         For TIFF input with external GT MAT and unspecified `gt_video_idx`,
         auto-match the TIFF clip to the best GT video and GT transform
@@ -922,7 +924,7 @@ def show_mat_with_single_result(
     interval=200,
 ):
     """
-    Backward-compatible wrapper for split MAT result visualization.
+    Convenience wrapper for split MAT result visualization.
     Prefer `show_mat_result_by_index(...)` for new workflows.
     """
     if video_idx is None:

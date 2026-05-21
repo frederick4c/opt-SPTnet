@@ -24,5 +24,10 @@ docs = [
     "sphinx",
 ]
 
+[project.scripts]
+sptnet-mat-to-tiff = "sptnet.data.conversion:main"
+sptnet-inference = "sptnet.inference.cli:main"
+sptnet-train = "sptnet.training.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]

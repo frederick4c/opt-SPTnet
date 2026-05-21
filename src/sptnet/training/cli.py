@@ -1,6 +1,5 @@
-# Deprecated: this root-level script is no longer used; use `sptnet-train` from `sptnet.training.cli`.
 import os
-import sys
+import time
 import argparse
 import glob
 import csv
@@ -17,7 +16,6 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 from sptnet import SPTnet, Transformer, Transformer3d, TransformerMatDataset
 from sptnet.data import create_train_val_loaders
 from sptnet.training import hungarian_matched_loss, normalize_training_inputs
@@ -35,6 +33,17 @@ torch.backends.cudnn.allow_tf32 = True
 
 current_folder = os.path.dirname(os.path.abspath(__file__))
 RANDOM_SEED = 68
+
+
+def _default_crlb_path():
+    candidates = [
+        os.path.join(os.getcwd(), 'CRLB_H_D_frame.mat'),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'CRLB_H_D_frame.mat')),
+    ]
+    for candidate in candidates:
+        if os.path.isfile(candidate):
+            return candidate
+    return candidates[0]
 
 
 def set_random_seeds(seed=RANDOM_SEED):
@@ -102,6 +111,7 @@ def parse_args():
     p.add_argument('--resume', type=str, default='', help="path to model weights to resume from")
     p.add_argument('--resume-optimizer', type=str, default='', help="path to optimizer state; defaults to <resume>optimizer_stat")
     p.add_argument('--resume-history', type=str, default='', help="path to existing loss_history.csv; defaults to output model dir CSV")
+    p.add_argument('--crlb-path', type=str, default='', help="path to CRLB_H_D_frame.mat; defaults to ./CRLB_H_D_frame.mat")
     p.add_argument('-d', '--data', type=str, nargs='+', help="Path to training data .mat files")
     return p.parse_args()
 
@@ -196,7 +206,7 @@ def main():
         [train_size, val_size],
         batch_size=spt.batch_size,
     )
-    file_path = os.path.join(os.path.dirname(__file__), 'CRLB_H_D_frame.mat')
+    file_path = args.crlb_path or _default_crlb_path()
     if not os.path.isfile(file_path):
         raise FileNotFoundError(f"Calcualted CRLB matrix file is not found: {file_path}")
     # Otherwise load as usual
