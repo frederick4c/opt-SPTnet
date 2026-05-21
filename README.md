@@ -30,6 +30,17 @@ sptnet-train --data "training/*.mat" --model-dir runs/example
 sptnet-inference --model-path runs/example/trained_model --data "test/*.mat"
 ```
 
+The CRLB matrix used by training can be regenerated without MATLAB:
+
+```bash
+sptnet-compute-crlb --output CRLB_H_D_frame.mat --progress
+```
+
+If the matrix is missing when training starts, `sptnet-train` will compute it once,
+save it to the configured CRLB path, and reuse it on later runs. Existing matrices
+are checked against the current training frame count, diffusion range, and sampled
+reference values before reuse.
+
 ## Visualize Inference Results
 
 In a notebook, load the packaged visualization helper:

@@ -19,6 +19,7 @@ import torch.optim as optim
 from sptnet import SPTnet, Transformer, Transformer3d, TransformerMatDataset
 from sptnet.data import create_train_val_loaders
 from sptnet.training import hungarian_matched_loss, normalize_training_inputs
+from sptnet.training.crlb import load_or_generate_crlb_matrix
 from tqdm import tqdm
 # from tkinter import Tk
 # from tkinter.filedialog import askopenfilename
@@ -189,6 +190,13 @@ def main():
         diff_max = args.max_dc
     )
 
+    file_path = args.crlb_path or _default_crlb_path()
+    CRLB_matrix = load_or_generate_crlb_matrix(
+        file_path,
+        frame_number=spt.number_of_frame,
+        diff_max=spt.diff_max,
+    )
+
     print(f"Loading training data from {len(training_files)} files...")
     all_datasets = []
     for i, file in enumerate(training_files):
@@ -206,12 +214,6 @@ def main():
         [train_size, val_size],
         batch_size=spt.batch_size,
     )
-    file_path = args.crlb_path or _default_crlb_path()
-    if not os.path.isfile(file_path):
-        raise FileNotFoundError(f"Calcualted CRLB matrix file is not found: {file_path}")
-    # Otherwise load as usual
-    with h5py.File(file_path, 'r') as f:
-        CRLB_matrix = f['CRLB_matrix_HD_frame'][()]
 
     def train_step(batch_idx, data):
         model.train()

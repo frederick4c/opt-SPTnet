@@ -26,6 +26,7 @@ docs = [
 
 [project.scripts]
 sptnet-mat-to-tiff = "sptnet.data.conversion:main"
+sptnet-compute-crlb = "sptnet.training.crlb:main"
 sptnet-inference = "sptnet.inference.cli:main"
 sptnet-train = "sptnet.training.cli:main"
 
