@@ -104,8 +104,8 @@ def hungarian_matched_loss(
             duration = sum(gt_classes[b, :])[track_flag]
             pos_loss_matrix_allfrm_pf = pos_loss_matrix / duration
 
-            gt_h_nonzero = gt_h[b][track_flag]
-            gt_d_nonzero = gt_d[b][track_flag]
+            gt_h_nonzero = gt_h[b][:track_flag.shape[0]][track_flag]
+            gt_d_nonzero = gt_d[b][:track_flag.shape[0]][track_flag]
             h_idx = torch.clamp((gt_h_nonzero * 100).round() - 1, min=0, max=98).cpu().numpy().astype(int)
             d_idx = (
                 torch.clamp((gt_d_nonzero * diff_max * 100).round() - 1, min=0, max=diff_max * 100 - 1)

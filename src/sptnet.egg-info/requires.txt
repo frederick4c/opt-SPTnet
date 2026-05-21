@@ -1,0 +1,14 @@
+h5py
+matplotlib
+numpy
+positional-encodings[pytorch]
+scipy
+tifffile
+torch
+tqdm
+
+[docs]
+sphinx
+
+[test]
+pytest
