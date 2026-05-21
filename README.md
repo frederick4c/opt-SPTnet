@@ -67,3 +67,16 @@ sphinx-build -b html docs docs/_build/html
 ```
 
 The generated site will be written to `docs/_build/html`.
+
+## Tests
+
+Run the lightweight pytest suite from the repository root:
+
+```bash
+python -m pip install -e ".[test]"
+pytest
+```
+
+The tests use small synthetic MAT/TIFF files and tensors, so they should run
+comfortably on a laptop. Torch-backed tests skip automatically in minimal
+environments where PyTorch is not installed.
