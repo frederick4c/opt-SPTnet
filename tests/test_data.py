@@ -8,7 +8,7 @@ import tifffile
 torch = pytest.importorskip("torch")
 
 from sptnet.data.inference_dataset import FileSampleDataset, SubsetByIndices, collate_inference
-from sptnet.data.loaders import default_num_workers
+from sptnet.data.loaders import create_train_val_loaders, default_num_workers
 from sptnet.data.mat_dataset import TransformerMatDataset
 
 
@@ -81,6 +81,39 @@ def test_default_num_workers_honors_environment(monkeypatch):
 
     monkeypatch.setenv("SPT_NUM_WORKERS", "0")
     assert default_num_workers() == 0
+
+
+def test_train_val_loaders_keep_single_sample_train_split(monkeypatch):
+    monkeypatch.setenv("SPT_NUM_WORKERS", "0")
+    dataset = torch.utils.data.TensorDataset(torch.arange(1))
+
+    train_loader, val_loader, train_set, val_set = create_train_val_loaders(
+        dataset,
+        [0, 1],
+        batch_size=16,
+    )
+
+    assert len(train_set) == 1
+    assert len(val_set) == 0
+    assert len(train_loader) == 1
+    assert len(val_loader) == 0
+    assert next(iter(train_loader))[0].item() == 0
+
+
+def test_train_val_loaders_disable_drop_last_for_small_splits(monkeypatch):
+    monkeypatch.setenv("SPT_NUM_WORKERS", "0")
+    dataset = torch.utils.data.TensorDataset(torch.arange(3))
+
+    train_loader, val_loader, train_set, val_set = create_train_val_loaders(
+        dataset,
+        [2, 1],
+        batch_size=16,
+    )
+
+    assert len(train_set) == 2
+    assert len(val_set) == 1
+    assert len(train_loader) == 1
+    assert len(val_loader) == 1
 
 
 def test_transformer_mat_dataset_reads_unlabeled_single_movie(tmp_path):

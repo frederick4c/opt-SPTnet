@@ -409,7 +409,9 @@ def main():
         v_loss_total_diff = 0
         v_loss_total_bg = 0
         pbar = tqdm(train_dataloader, desc=f"Epoch {epoch} [train]")
+        train_batch_count = 0
         for batch_idx, data in enumerate(pbar):
+            train_batch_count = batch_idx + 1
             t_loss, cl_ls, coor_ls, h_ls, diff_ls, bg_ls = train_step(batch_idx, data)
             t_loss_total += t_loss
             t_loss_total_cls += cl_ls
@@ -421,17 +423,24 @@ def main():
             if args.max_train_batches > 0 and (batch_idx + 1) >= args.max_train_batches:
                 print(f"Stopping train epoch early after {args.max_train_batches} batches (--max-train-batches).")
                 break
-        t_loss_epoch = t_loss_total/(batch_idx+1)
-        t_loss_epoch_cls  = t_loss_total_cls/(batch_idx+1)
-        t_loss_epoch_coor = t_loss_total_coor/(batch_idx+1)
-        t_loss_epoch_hurst = t_loss_total_hurst/(batch_idx+1)
-        t_loss_epoch_diff = t_loss_total_diff/(batch_idx+1)
-        t_loss_epoch_bg = t_loss_total_bg / (batch_idx + 1)
+        if train_batch_count == 0:
+            raise RuntimeError(
+                "Training DataLoader produced no batches. "
+                "Use at least one training sample or reduce --batch-size."
+            )
+        t_loss_epoch = t_loss_total/train_batch_count
+        t_loss_epoch_cls  = t_loss_total_cls/train_batch_count
+        t_loss_epoch_coor = t_loss_total_coor/train_batch_count
+        t_loss_epoch_hurst = t_loss_total_hurst/train_batch_count
+        t_loss_epoch_diff = t_loss_total_diff/train_batch_count
+        t_loss_epoch_bg = t_loss_total_bg / train_batch_count
             # lr.append(scheduler_rdpl.get_lr()[0])
 
         did_validate = (epoch == 1) or (args.val_every > 0 and epoch % args.val_every == 0)
         if did_validate:
+            val_batch_count = 0
             for batch_idx, data in enumerate(val_dataloader):
+                val_batch_count = batch_idx + 1
                 v_loss, cl_ls, coor_ls, h_ls, diff_ls, bg_ls = val_step(batch_idx, data)
                 v_loss_total+=v_loss
                 v_loss_total_cls += cl_ls
@@ -442,13 +451,22 @@ def main():
                 if args.max_val_batches > 0 and (batch_idx + 1) >= args.max_val_batches:
                     print(f"Stopping validation early after {args.max_val_batches} batches (--max-val-batches).")
                     break
-            v_loss_epoch = v_loss_total / (batch_idx + 1)
-            v_loss_epoch_cls = v_loss_total_cls / (batch_idx + 1)
-            v_loss_epoch_coor = v_loss_total_coor / (batch_idx + 1)
-            v_loss_epoch_hurst = v_loss_total_hurst / (batch_idx + 1)
-            v_loss_epoch_diff = v_loss_total_diff / (batch_idx + 1)
-            v_loss_epoch_bg = v_loss_total_bg / (batch_idx + 1)
-            print(f"Finished validation for Epoch {epoch}. Loss: {v_loss_epoch:.4f}")
+            if val_batch_count > 0:
+                v_loss_epoch = v_loss_total / val_batch_count
+                v_loss_epoch_cls = v_loss_total_cls / val_batch_count
+                v_loss_epoch_coor = v_loss_total_coor / val_batch_count
+                v_loss_epoch_hurst = v_loss_total_hurst / val_batch_count
+                v_loss_epoch_diff = v_loss_total_diff / val_batch_count
+                v_loss_epoch_bg = v_loss_total_bg / val_batch_count
+                print(f"Finished validation for Epoch {epoch}. Loss: {v_loss_epoch:.4f}")
+            else:
+                v_loss_epoch = float('nan')
+                v_loss_epoch_cls = float('nan')
+                v_loss_epoch_coor = float('nan')
+                v_loss_epoch_hurst = float('nan')
+                v_loss_epoch_diff = float('nan')
+                v_loss_epoch_bg = float('nan')
+                print(f"Skipping validation for Epoch {epoch}; validation split is empty.")
         else:
             v_loss_epoch = float('nan')
             v_loss_epoch_cls = float('nan')
@@ -458,7 +476,8 @@ def main():
             v_loss_epoch_bg = float('nan')
             print(f"Skipping validation for Epoch {epoch}; next validation check is controlled by --val-every {args.val_every}.")
 
-        if did_validate and v_loss_epoch < min_v_loss:
+        has_finite_validation = did_validate and np.isfinite(v_loss_epoch)
+        if has_finite_validation and v_loss_epoch < min_v_loss:
             min_v_loss = v_loss_epoch
             no_improvement = 0
             if args.gpus > 1:
@@ -467,8 +486,16 @@ def main():
                 torch.save(model.state_dict(), spt.path_saved_model)
             torch.save(optimizer.state_dict(), spt.path_saved_model+'optimizer_stat')
             print('==> Saving a new best model')
-        elif did_validate:
+        elif has_finite_validation:
             no_improvement+=1
+        elif did_validate:
+            if args.gpus > 1:
+                torch.save(model.module.state_dict(), spt.path_saved_model)
+            else:
+                torch.save(model.state_dict(), spt.path_saved_model)
+            torch.save(optimizer.state_dict(), spt.path_saved_model+'optimizer_stat')
+            print("Validation did not run; saved current model for this tiny training run.")
+            print("Early stopping patience unchanged because validation did not run.")
         else:
             print(f"Early stopping patience unchanged ({no_improvement}/{max_num_of_epoch_without_improving}) because validation was skipped.")
         lr.append(optimizer.param_groups[0]['lr'])
