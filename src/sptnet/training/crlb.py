@@ -14,6 +14,8 @@ import numpy as np
 
 DEFAULT_DATASET_NAME = "CRLB_matrix_HD_frame"
 DEFAULT_DIFF_STEP = 0.01
+DEFAULT_CRLB_STEM = "CRLB_H_D_frame"
+DEFAULT_CRLB_EXTENSION = ".h5"
 
 
 def _diffusion_count(diff_max: float, diff_step: float) -> int:
@@ -27,6 +29,38 @@ def _diffusion_count(diff_max: float, diff_step: float) -> int:
     if not np.isclose(count * diff_step, diff_max, rtol=0.0, atol=1e-12):
         raise ValueError("diff_max must be an integer multiple of diff_step.")
     return count
+
+
+def crlb_extension_for_training_data(training_files: Iterable[str | Path]) -> str:
+    """Return the default CRLB extension for a set of training data files."""
+    paths = [Path(path) for path in training_files]
+    if paths and all(path.suffix.lower() == ".mat" for path in paths):
+        return ".mat"
+    return DEFAULT_CRLB_EXTENSION
+
+
+def default_crlb_path_for_training_data(
+    training_files: Iterable[str | Path],
+    *,
+    search_dirs: Iterable[str | Path] | None = None,
+) -> Path:
+    """Choose the default CRLB path from the training data file type.
+
+    Native HDF5 training data defaults to ``CRLB_H_D_frame.h5``. MATLAB v7.3
+    ``.mat`` training data keeps the legacy ``CRLB_H_D_frame.mat`` name.
+    """
+    extension = crlb_extension_for_training_data(training_files)
+    if search_dirs is None:
+        search_dirs = [
+            Path.cwd(),
+            Path(__file__).resolve().parents[3],
+        ]
+
+    candidates = [Path(directory) / f"{DEFAULT_CRLB_STEM}{extension}" for directory in search_dirs]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return candidates[0]
 
 
 def _crlb_for_frame(
@@ -146,7 +180,7 @@ def save_crlb_matrix(
     *,
     dataset_name: str = DEFAULT_DATASET_NAME,
 ) -> None:
-    """Write a CRLB matrix to an HDF5 ``.mat`` file readable by training code."""
+    """Write a CRLB matrix to an HDF5 file readable by training code."""
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with h5py.File(output_path, "w") as handle:
@@ -312,7 +346,7 @@ def plot_crlb_surfaces(
 
 
 def generate_crlb_file(
-    output_path: str | Path = "CRLB_H_D_frame.mat",
+    output_path: str | Path = f"{DEFAULT_CRLB_STEM}{DEFAULT_CRLB_EXTENSION}",
     *,
     frame_number: int = 100,
     diff_max: float = 10.0,
@@ -320,7 +354,7 @@ def generate_crlb_file(
     jitter_scale: float = 1e-8,
     progress: bool = False,
 ) -> np.ndarray:
-    """Compute and save ``CRLB_H_D_frame.mat``.
+    """Compute and save a CRLB matrix file.
 
     The matrix is returned so callers can inspect it without reopening the file.
     """
@@ -337,13 +371,13 @@ def generate_crlb_file(
 
 def _parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate the CRLB_H_D_frame.mat matrix used for SPTnet training."
+        description="Generate the CRLB_H_D_frame matrix used for SPTnet training."
     )
     parser.add_argument(
         "-o",
         "--output",
-        default="CRLB_H_D_frame.mat",
-        help="Output .mat path. Defaults to ./CRLB_H_D_frame.mat.",
+        default=f"{DEFAULT_CRLB_STEM}{DEFAULT_CRLB_EXTENSION}",
+        help=f"Output HDF5 path. Defaults to ./{DEFAULT_CRLB_STEM}{DEFAULT_CRLB_EXTENSION}.",
     )
     parser.add_argument(
         "--frame-number",

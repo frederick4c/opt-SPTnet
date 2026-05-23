@@ -857,7 +857,9 @@ def find_tiff_result_pairs(
         stem = os.path.splitext(os.path.basename(rp))[0]
         if stem.startswith('result_'):
             stem = stem[len('result_'):]
-        result_by_stem[stem] = rp
+        existing = result_by_stem.get(stem)
+        if existing is None or os.path.splitext(existing)[1].lower() == '.mat':
+            result_by_stem[stem] = rp
 
     pairs = []
     for tp in tiff_files:

@@ -4,6 +4,8 @@
 def __getattr__(name):
     if name in {
         "compute_crlb_matrix",
+        "crlb_extension_for_training_data",
+        "default_crlb_path_for_training_data",
         "generate_crlb_file",
         "load_or_generate_crlb_matrix",
         "plot_crlb_surfaces",
@@ -25,6 +27,8 @@ def __getattr__(name):
 
 __all__ = [
     "compute_crlb_matrix",
+    "crlb_extension_for_training_data",
+    "default_crlb_path_for_training_data",
     "generate_crlb_file",
     "load_or_generate_crlb_matrix",
     "hungarian_matched_loss",

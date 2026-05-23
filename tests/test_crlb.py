@@ -4,6 +4,9 @@ import pytest
 
 from sptnet.training.crlb import (
     compute_crlb_matrix,
+    crlb_extension_for_training_data,
+    default_crlb_path_for_training_data,
+    generate_crlb_file,
     load_or_generate_crlb_matrix,
     save_crlb_matrix,
     validate_crlb_matrix,
@@ -62,7 +65,7 @@ def test_compute_crlb_matrix_shape_and_reference_samples():
 
 def test_save_crlb_matrix_writes_training_dataset(tmp_path):
     matrix = compute_crlb_matrix(frame_number=3, diff_max=0.02, diff_step=0.01)
-    output_path = tmp_path / "CRLB_H_D_frame.mat"
+    output_path = tmp_path / "CRLB_H_D_frame.h5"
 
     save_crlb_matrix(output_path, matrix)
 
@@ -72,6 +75,43 @@ def test_save_crlb_matrix_writes_training_dataset(tmp_path):
         assert dataset.dtype == np.float64
         assert dataset.attrs["MATLAB_class"] == b"double"
         np.testing.assert_allclose(dataset[()], matrix)
+
+
+def test_default_crlb_extension_follows_training_data_type(tmp_path):
+    assert crlb_extension_for_training_data([tmp_path / "trainingvideos_1.h5"]) == ".h5"
+    assert crlb_extension_for_training_data([tmp_path / "trainingvideos_1.hdf5"]) == ".h5"
+    assert crlb_extension_for_training_data([tmp_path / "trainingvideos_1.mat"]) == ".mat"
+    assert crlb_extension_for_training_data([tmp_path / "a.mat", tmp_path / "b.h5"]) == ".h5"
+    assert crlb_extension_for_training_data([]) == ".h5"
+
+
+def test_default_crlb_path_uses_h5_for_hdf5_training_data(tmp_path):
+    path = default_crlb_path_for_training_data(
+        [tmp_path / "trainingvideos_1.h5"],
+        search_dirs=[tmp_path],
+    )
+
+    assert path == tmp_path / "CRLB_H_D_frame.h5"
+
+
+def test_default_crlb_path_uses_mat_for_mat_training_data(tmp_path):
+    path = default_crlb_path_for_training_data(
+        [tmp_path / "trainingvideos_1.mat"],
+        search_dirs=[tmp_path],
+    )
+
+    assert path == tmp_path / "CRLB_H_D_frame.mat"
+
+
+def test_generate_crlb_file_defaults_to_h5(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+
+    matrix = generate_crlb_file(frame_number=3, diff_max=0.02)
+
+    output_path = tmp_path / "CRLB_H_D_frame.h5"
+    assert output_path.is_file()
+    with h5py.File(output_path, "r") as handle:
+        np.testing.assert_allclose(handle["CRLB_matrix_HD_frame"][()], matrix)
 
 
 def test_load_or_generate_crlb_matrix_creates_missing_file(tmp_path):

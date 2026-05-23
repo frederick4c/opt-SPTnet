@@ -19,7 +19,7 @@ import torch.optim as optim
 from sptnet import SPTnet, Transformer, Transformer3d, TransformerMatDataset
 from sptnet.data import create_train_val_loaders
 from sptnet.training import hungarian_matched_loss, normalize_training_inputs
-from sptnet.training.crlb import load_or_generate_crlb_matrix
+from sptnet.training.crlb import default_crlb_path_for_training_data, load_or_generate_crlb_matrix
 from tqdm import tqdm
 # from tkinter import Tk
 # from tkinter.filedialog import askopenfilename
@@ -34,17 +34,6 @@ torch.backends.cudnn.allow_tf32 = True
 
 current_folder = os.path.dirname(os.path.abspath(__file__))
 RANDOM_SEED = 68
-
-
-def _default_crlb_path():
-    candidates = [
-        os.path.join(os.getcwd(), 'CRLB_H_D_frame.mat'),
-        os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'CRLB_H_D_frame.mat')),
-    ]
-    for candidate in candidates:
-        if os.path.isfile(candidate):
-            return candidate
-    return candidates[0]
 
 
 def set_random_seeds(seed=RANDOM_SEED):
@@ -112,7 +101,12 @@ def parse_args():
     p.add_argument('--resume', type=str, default='', help="path to model weights to resume from")
     p.add_argument('--resume-optimizer', type=str, default='', help="path to optimizer state; defaults to <resume>optimizer_stat")
     p.add_argument('--resume-history', type=str, default='', help="path to existing loss_history.csv; defaults to output model dir CSV")
-    p.add_argument('--crlb-path', type=str, default='', help="path to CRLB_H_D_frame.mat; defaults to ./CRLB_H_D_frame.mat")
+    p.add_argument(
+        '--crlb-path',
+        type=str,
+        default='',
+        help="Path to CRLB_H_D_frame.h5/.mat. Defaults to .h5 for HDF5 data and .mat for MATLAB data.",
+    )
     p.add_argument('-d', '--data', type=str, nargs='+', help="Path to training data HDF5 files (.h5/.hdf5 or MATLAB v7.3 .mat)")
     return p.parse_args()
 
@@ -190,7 +184,7 @@ def main():
         diff_max = args.max_dc
     )
 
-    file_path = args.crlb_path or _default_crlb_path()
+    file_path = args.crlb_path or default_crlb_path_for_training_data(training_files)
     CRLB_matrix = load_or_generate_crlb_matrix(
         file_path,
         frame_number=spt.number_of_frame,

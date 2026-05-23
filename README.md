@@ -39,13 +39,15 @@ commands; pass a `*.mat` glob instead when using older data.
 The CRLB matrix used by training can be regenerated without MATLAB:
 
 ```bash
-sptnet-compute-crlb --output CRLB_H_D_frame.mat --progress
+sptnet-compute-crlb --output CRLB_H_D_frame.h5 --progress
 ```
 
 If the matrix is missing when training starts, `sptnet-train` will compute it once,
-save it to the configured CRLB path, and reuse it on later runs. Existing matrices
-are checked against the current training frame count, diffusion range, and sampled
-reference values before reuse.
+save it to the configured CRLB path, and reuse it on later runs. HDF5 training
+data defaults to `CRLB_H_D_frame.h5`; MATLAB `.mat` training data keeps the
+legacy `CRLB_H_D_frame.mat` default. Existing matrices are checked against the
+current training frame count, diffusion range, and sampled reference values
+before reuse.
 
 ## Generate Training Data
 
