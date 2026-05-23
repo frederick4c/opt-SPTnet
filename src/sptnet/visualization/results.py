@@ -17,7 +17,7 @@ For per-TIFF CSD3 inference outputs without ground truth::
 
     ani = show_video(
         test_data_path="TestData/tiff_output/Example_testdata_000.tif",
-        results_path="Trained_models/full_run/inference_results/result_Example_testdata_000.mat",
+        results_path="Trained_models/full_run/inference_results/result_Example_testdata_000.h5",
         threshold=0.50,
     )
     HTML(ani.to_jshtml())
@@ -392,10 +392,14 @@ def load_test_data(mat_path):
     return videos, gt_positions, gt_H, gt_C, f
 
 
-def load_inference_results(mat_path):
+def load_inference_results(results_path):
     """
-    Load SPTnet inference output .mat file and apply the same transforms
-    as Visualize_SPTnet_Outputs.m (lines 25-28).
+    Load SPTnet inference output and apply the same transforms as
+    Visualize_SPTnet_Outputs.m (lines 25-28).
+
+    Native ``.h5``/``.hdf5`` result files are read with h5py. MATLAB result
+    files, including legacy MATLAB v5 files with a misleading extension, are
+    read with scipy.io.loadmat.
 
     Returns (all N-indexed, ready to slice by video index)
     -------
@@ -404,7 +408,11 @@ def load_inference_results(mat_path):
     est_H   : (N, Q)          — Hurst exponent
     est_C   : (N, Q)          — diffusion coefficient (scaled by 0.5)
     """
-    data = sio.loadmat(mat_path)
+    try:
+        with h5py.File(results_path, "r") as handle:
+            data = {name: np.asarray(handle[name]) for name in handle.keys()}
+    except OSError:
+        data = {k: v for k, v in sio.loadmat(results_path).items() if not k.startswith("__")}
 
     obj_raw = data['obj_estimation']   # (N, 1, Q, T)  from our inference script
     xy_raw  = data['estimation_xy']    # (N, Q, T, 2)
@@ -618,7 +626,7 @@ def show_video(test_data_path, results_path,
         Path to source video:
         - `.mat` training/test file (with optional GT), or
         - `.tif/.tiff` movie stack (no GT overlay).
-    results_path   : str  — path to SPTnet inference output .mat file
+    results_path   : str  — path to SPTnet inference output `.h5` or `.mat` file
     video_idx      : int  — which video (0-based)
     threshold      : float — detection confidence threshold
     min_track_len  : int  — min frames active to display a predicted track
@@ -815,7 +823,8 @@ def find_tiff_result_pairs(
     results_dir=None,
 ):
     """
-    Match TIFF stacks with per-file `result_*.mat` outputs by basename.
+    Match TIFF stacks with per-file `result_*.h5` or legacy `result_*.mat`
+    outputs by basename.
     Returns a sorted list of (tiff_path, result_path).
     """
     if tiff_pattern is None:
@@ -826,12 +835,22 @@ def find_tiff_result_pairs(
 
     if result_pattern is None:
         base_results_dir = RESULTS_DIR if results_dir is None else results_dir
-        result_pattern = os.path.join(base_results_dir, 'result_*.mat')
+        result_patterns = [
+            os.path.join(base_results_dir, 'result_*.h5'),
+            os.path.join(base_results_dir, 'result_*.mat'),
+        ]
     else:
-        result_pattern = _pattern_from_dir_or_pattern(result_pattern, 'result_*.mat')
+        _, ext = os.path.splitext(os.path.basename(result_pattern.rstrip(os.sep)))
+        if not glob.has_magic(result_pattern) and (os.path.isdir(result_pattern) or ext == ''):
+            result_patterns = [
+                os.path.join(result_pattern, 'result_*.h5'),
+                os.path.join(result_pattern, 'result_*.mat'),
+            ]
+        else:
+            result_patterns = [result_pattern]
 
     tiff_files = sorted(glob.glob(tiff_pattern))
-    result_files = sorted(glob.glob(result_pattern))
+    result_files = sorted({rp for pattern in result_patterns for rp in glob.glob(pattern)})
 
     result_by_stem = {}
     for rp in result_files:
@@ -862,7 +881,7 @@ def show_tiff_result_by_index(
     interval=200,
 ):
     """
-    Convenience wrapper for per-file TIFF + result MAT workflows.
+    Convenience wrapper for per-file TIFF + inference-result workflows.
     """
     pairs = find_tiff_result_pairs(
         tiff_pattern=tiff_pattern,

@@ -2,12 +2,9 @@ import argparse
 import os
 import glob
 import time
-import tempfile
 from collections import defaultdict
-from os.path import dirname, basename
+from os.path import dirname
 
-import numpy as np
-import scipy.io as sio
 import torch
 from torch.utils.data import DataLoader
 
@@ -19,6 +16,11 @@ from sptnet.inference import (
     get_num_queries,
     load_checkpoint_strict_enough,
     run_batched_inference,
+)
+from sptnet.inference.results_io import (
+    result_output_path,
+    stack_result_arrays,
+    write_inference_result_file,
 )
 
 # Set up processing device
@@ -46,6 +48,7 @@ def parse_args():
         help="For 4D HDF5 files (N,T,H,W), only run this clip index (default: 0).",
     )
     return p.parse_args()
+
 
 def main():
     t0_all = time.time()
@@ -177,40 +180,14 @@ def main():
 
     t0_save = time.time()
     for file_path, rec in results_by_file.items():
-        base = os.path.splitext(basename(file_path))[0] + '.mat'
-        estimation_obj = np.vstack(rec['obj_estimation'])
-        estimation_obj = np.expand_dims(estimation_obj, axis=1) # Shape: [N, 1, Q, T] to match MATLAB GUI expectation
-        estimation_xy = np.vstack(rec['estimation_xy'])
-        estimation_H = np.vstack(rec['estimation_H'])
-        estimation_C = np.vstack(rec['estimation_C'])
-
-        output_path = os.path.join(save_dir, 'result_' + basename(base))
+        arrays = stack_result_arrays(rec)
+        output_path = result_output_path(save_dir, file_path)
         if os.path.exists(output_path):
             print(f"Overwriting existing result file: {output_path}")
         else:
             print(f"Writing new result file: {output_path}")
 
-        # Write atomically: save to temp file in same directory, then replace.
-        # This prevents stale/partial files if a job is interrupted during save.
-        with tempfile.NamedTemporaryFile(
-            mode='wb',
-            suffix='.mat',
-            prefix='tmp_result_',
-            dir=save_dir,
-            delete=False
-        ) as tf:
-            tmp_output_path = tf.name
-
-        sio.savemat(
-            tmp_output_path,
-            mdict={
-                'obj_estimation': estimation_obj,
-                'estimation_xy': estimation_xy,
-                'estimation_H': estimation_H,
-                'estimation_C': estimation_C,
-            }
-        )
-        os.replace(tmp_output_path, output_path)
+        write_inference_result_file(output_path, arrays, source_file=file_path)
 
     print(f"Result saving completed in {time.time() - t0_save:.2f}s")
     print(f'Done. Saved inference results to: {save_dir}')

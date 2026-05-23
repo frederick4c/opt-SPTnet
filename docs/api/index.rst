@@ -18,6 +18,7 @@ API Reference
    sptnet.inference
    sptnet.inference.cli
    sptnet.inference.predict
+   sptnet.inference.results_io
    sptnet.training
    sptnet.training.cli
    sptnet.training.losses

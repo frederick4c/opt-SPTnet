@@ -71,7 +71,7 @@ from IPython.display import HTML
 
 ani = show_video(
     test_data_path="test/example.h5",
-    results_path="runs/example/inference_results/result_example.mat",
+    results_path="runs/example/inference_results/result_example.h5",
     threshold=0.5,
 )
 HTML(ani.to_jshtml())
