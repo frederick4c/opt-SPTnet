@@ -23,6 +23,9 @@ dependencies = [
 docs = [
     "sphinx",
 ]
+notebook = [
+    "ipykernel",
+]
 test = [
     "pytest",
 ]

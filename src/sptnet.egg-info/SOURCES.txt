@@ -15,6 +15,7 @@ src/sptnet/data/mat_dataset.py
 src/sptnet/inference/__init__.py
 src/sptnet/inference/cli.py
 src/sptnet/inference/predict.py
+src/sptnet/inference/results_io.py
 src/sptnet/models/__init__.py
 src/sptnet/models/backbone.py
 src/sptnet/models/sptnet.py
@@ -32,5 +33,7 @@ tests/test_crlb.py
 tests/test_data.py
 tests/test_data_generator.py
 tests/test_inference.py
+tests/test_inference_results_io.py
 tests/test_models.py
 tests/test_training.py
+tests/test_visualization_results.py
