@@ -132,12 +132,16 @@ class FileSampleDataset(Dataset):
                 if td.ndim == 3:
                     self._add_record(file_path, ext, 0, tuple(td.shape))
                 elif td.ndim == 4:
-                    if self.mat_clip_index < 0 or self.mat_clip_index >= td.shape[0]:
-                        raise IndexError(
-                            f"mat_clip_index={self.mat_clip_index} out of range for {file_path} "
-                            f"(N={td.shape[0]})."
-                        )
-                    self._add_record(file_path, ext, self.mat_clip_index, tuple(td.shape[1:]))
+                    if f.attrs.get("format") == "sptnet-segmentation-tile":
+                        for sample_idx in range(td.shape[0]):
+                            self._add_record(file_path, ext, sample_idx, tuple(td.shape[1:]))
+                    else:
+                        if self.mat_clip_index < 0 or self.mat_clip_index >= td.shape[0]:
+                            raise IndexError(
+                                f"mat_clip_index={self.mat_clip_index} out of range for {file_path} "
+                                f"(N={td.shape[0]})."
+                            )
+                        self._add_record(file_path, ext, self.mat_clip_index, tuple(td.shape[1:]))
                 else:
                     raise ValueError(f"'timelapsedata' must be 3D or 4D, got {td.shape} in {file_path}.")
 

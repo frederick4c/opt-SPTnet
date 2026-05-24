@@ -12,6 +12,7 @@ src/sptnet/data/conversion.py
 src/sptnet/data/inference_dataset.py
 src/sptnet/data/loaders.py
 src/sptnet/data/mat_dataset.py
+src/sptnet/data/trackmate.py
 src/sptnet/inference/__init__.py
 src/sptnet/inference/cli.py
 src/sptnet/inference/predict.py
@@ -20,6 +21,10 @@ src/sptnet/models/__init__.py
 src/sptnet/models/backbone.py
 src/sptnet/models/sptnet.py
 src/sptnet/models/transformers.py
+src/sptnet/segmentation/__init__.py
+src/sptnet/segmentation/io.py
+src/sptnet/segmentation/split.py
+src/sptnet/segmentation/stitch.py
 src/sptnet/training/__init__.py
 src/sptnet/training/cli.py
 src/sptnet/training/crlb.py
@@ -35,5 +40,7 @@ tests/test_data_generator.py
 tests/test_inference.py
 tests/test_inference_results_io.py
 tests/test_models.py
+tests/test_segmentation.py
+tests/test_trackmate.py
 tests/test_training.py
 tests/test_visualization_results.py

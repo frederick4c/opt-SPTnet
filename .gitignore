@@ -30,3 +30,7 @@ CRLB_H_D_frame.mat
 # data
 testdata*
 *.h5
+*.csv
+*.pt
+csd3_sparse_teacher/
+RealData/

@@ -34,8 +34,11 @@ test = [
 sptnet-hdf5-to-tiff = "sptnet.data.conversion:main"
 sptnet-mat-to-tiff = "sptnet.data.conversion:main"
 sptnet-compute-crlb = "sptnet.training.crlb:main"
+sptnet-combine-trackmate = "sptnet.data.trackmate:main"
 sptnet-generate-training-data = "sptnet.training.data_generator:main"
 sptnet-inference = "sptnet.inference.cli:main"
+sptnet-segment = "sptnet.segmentation.split:main"
+sptnet-stitch = "sptnet.segmentation.stitch:main"
 sptnet-train = "sptnet.training.cli:main"
 
 [tool.setuptools.packages.find]

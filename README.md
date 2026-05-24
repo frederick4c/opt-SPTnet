@@ -24,6 +24,18 @@ sptnet-hdf5-to-tiff "data/*.h5" --output-dir data/tiff_output
 
 The older `sptnet-mat-to-tiff` command name is kept as a compatibility alias.
 
+## Combine TIFF and TrackMate XML
+
+TrackMate XML exports can be bundled with the corresponding TIFF movie into one
+HDF5 file:
+
+```bash
+sptnet-combine-trackmate RealData/full_realdata.tif RealData/realdata_tracks.xml -o RealData/full_realdata_trackmate.h5
+```
+
+The output stores the movie as `timelapsedata` in `T,Y,X` order, plus
+`trackmate_tracks`, `trackmate_positions`, and `trackmate_lengths`.
+
 ## Training and Inference
 
 The package entry points replace the old root-level scripts:
@@ -35,6 +47,34 @@ sptnet-inference --model-path runs/example/trained_model --data "test/*.h5"
 
 Existing MATLAB v7.3 `.mat` training/test files remain supported by the same
 commands; pass a `*.mat` glob instead when using older data.
+
+## Segment Large Movies and Stitch Results
+
+Large `.h5`, `.hdf5`, `.mat`, and `.tif`/`.tiff` movies can be split into
+SPTnet-sized HDF5 tiles without MATLAB:
+
+```bash
+sptnet-segment "raw/*.h5" --output-dir raw/tiles --block-shape 30 64 64 --overlap 0 16 16
+```
+
+Tile files are named by 1-based spatial tile order, for example
+`movie_x001_y001.h5` or `movie_n001_x001_y001.h5` for batched inputs. Each
+spatial tile stores all temporal clips for that position as `timelapsedata` in
+`N,T,Y,X` order, where `N` is the number of temporal blocks. The temporal starts
+are saved in file metadata for stitching. Python-native inputs use `TYX` or
+`NTYX` axes by default; legacy MATLAB arrays saved as `H,W,T,N` can be split
+with `--input-axes YXTN`. TIFF inputs are written as unlabeled HDF5 tile files
+containing `timelapsedata` only.
+
+After running inference on the tiles, stitch per-tile predictions back into
+global tracks and remove repeated tracks from overlapping tiles:
+
+```bash
+sptnet-stitch "runs/example/inference_results/result_movie_*.h5" --output stitched_tracks.csv
+```
+
+The stitcher also accepts legacy names like `resultblock001_x2_y3_t4.mat` when
+you provide `--stride T Y X`.
 
 The CRLB matrix used by training can be regenerated without MATLAB:
 
