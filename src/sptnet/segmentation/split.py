@@ -145,7 +145,16 @@ def _overlap_to_stride(block_shape: Tuple[int, int, int], overlap: Sequence[int]
     return stride
 
 
-def _starts(length: int, block: int, stride: int) -> List[int]:
+def _starts(length: int, block: int, stride: int, *, align_edges: bool = True) -> List[int]:
+    if align_edges:
+        if length <= block:
+            return [0]
+        starts = list(range(0, length - block + 1, stride))
+        final_start = length - block
+        if starts[-1] != final_start:
+            starts.append(final_start)
+        return starts
+
     count = max(1, math.ceil((max(length, block) - block) / stride) + 1)
     return [index * stride for index in range(count)]
 
@@ -222,6 +231,7 @@ def split_movie_file(
     output_dataset: str = "timelapsedata",
     overwrite: bool = True,
     dtype: str | None = "float32",
+    align_edges: bool = True,
 ) -> SegmentationResult:
     """Split one movie into ``T,Y,X`` HDF5 tiles for SPTnet inference."""
     input_path = Path(input_path)
@@ -238,9 +248,9 @@ def split_movie_file(
         movies = movies.astype(np.dtype(dtype), copy=False)
 
     sample_count, source_t, source_y, source_x = movies.shape
-    t_starts = _starts(source_t, block_shape[0], stride[0])
-    y_starts = _starts(source_y, block_shape[1], stride[1])
-    x_starts = _starts(source_x, block_shape[2], stride[2])
+    t_starts = _starts(source_t, block_shape[0], stride[0], align_edges=align_edges)
+    y_starts = _starts(source_y, block_shape[1], stride[1], align_edges=align_edges)
+    x_starts = _starts(source_x, block_shape[2], stride[2], align_edges=align_edges)
     padded_shape = (
         t_starts[-1] + block_shape[0],
         y_starts[-1] + block_shape[1],
@@ -323,7 +333,7 @@ def split_movie_file(
         settings_path=settings_path,
     )
     _write_manifest(result)
-    _write_settings(result, block_shape, overlap, padding, output_dataset)
+    _write_settings(result, block_shape, overlap, padding, output_dataset, align_edges)
     return result
 
 
@@ -403,6 +413,7 @@ def _write_settings(
     overlap: Sequence[int],
     padding: str,
     output_dataset: str,
+    align_edges: bool,
 ) -> None:
     settings = {
         "format": "sptnet-segmentation-settings",
@@ -414,6 +425,7 @@ def _write_settings(
         "overlap_tyx": tuple(int(v) for v in overlap),
         "stride_tyx": result.tiles[0].stride if result.tiles else None,
         "padding": padding,
+        "align_edges": bool(align_edges),
         "output_dataset": output_dataset,
         "tile_count": len({str(tile.output_path) for tile in result.tiles}),
         "clip_count": len(result.tiles),
@@ -432,6 +444,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--block-shape", nargs=3, type=int, default=DEFAULT_BLOCK_SHAPE, metavar=("T", "Y", "X"))
     parser.add_argument("--overlap", nargs=3, type=int, default=(0, 0, 0), metavar=("T", "Y", "X"))
     parser.add_argument("--padding", choices=("zero", "edge"), default="zero")
+    parser.add_argument(
+        "--no-align-edges",
+        action="store_true",
+        help="Use old stride-only starts that may create mostly padded edge tiles.",
+    )
     parser.add_argument("--output-ext", default=".h5", help="Tile extension, default .h5. Use .mat for HDF5-backed .mat files.")
     parser.add_argument("--dtype", default="float32", help="Tile dtype, or 'none' to preserve input dtype.")
     parser.add_argument("--no-overwrite", action="store_true", help="Skip existing tiles.")
@@ -457,6 +474,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         output_ext=args.output_ext,
         overwrite=not args.no_overwrite,
         dtype=dtype,
+        align_edges=not args.no_align_edges,
     )
 
     for result in results:

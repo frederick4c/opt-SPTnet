@@ -38,6 +38,7 @@ import os
 import glob
 import re
 import tempfile
+from pathlib import Path
 import numpy as np
 import h5py
 import scipy.io as sio
@@ -50,6 +51,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.animation as animation
 from matplotlib.colors import LinearSegmentedColormap
+
+from sptnet.segmentation import stitch as segmentation_stitch
 
 
 # ─── Parula-like colormap (approximates MATLAB's default) ────────────────────
@@ -453,12 +456,300 @@ def load_tiff_data(tiff_path):
     return arr[np.newaxis, ...]
 
 
+def load_movie_for_stitched_results(movie_path, video_index=0):
+    """Load a movie for stitched segmentation-result visualization as ``T,H,W``."""
+    movie_path = str(movie_path)
+    ext = os.path.splitext(movie_path)[1].lower()
+    if ext in [".tif", ".tiff"]:
+        arr = np.asarray(tifffile.imread(movie_path))
+        if arr.ndim == 2:
+            raise ValueError(f"{movie_path} contains only one frame; need a time series.")
+        if arr.ndim != 3:
+            raise ValueError(f"Unexpected TIFF shape {arr.shape} for {movie_path}.")
+        return arr
+
+    with h5py.File(movie_path, "r") as handle:
+        if "timelapsedata" not in handle:
+            raise KeyError(f"Missing 'timelapsedata' in {movie_path}.")
+        arr = np.asarray(handle["timelapsedata"])
+
+    if arr.ndim == 3:
+        return arr
+    if arr.ndim == 4:
+        if video_index < 0 or video_index >= arr.shape[0]:
+            raise IndexError(f"video_index={video_index} out of range for {movie_path} with N={arr.shape[0]}.")
+        return arr[video_index]
+    raise ValueError(f"Unexpected timelapsedata shape {arr.shape} for {movie_path}.")
+
+
+def load_trackmate_ground_truth_for_stitched_results(movie_path):
+    """Load dense TrackMate ground-truth positions from a combined HDF5 movie.
+
+    Returns ``None`` when the file has no TrackMate labels. Otherwise returns an
+    array with shape ``tracks, frames, xy`` and NaNs for missing detections.
+    """
+    ext = os.path.splitext(str(movie_path))[1].lower()
+    if ext not in [".h5", ".hdf5", ".mat"]:
+        return None
+    with h5py.File(movie_path, "r") as handle:
+        if "trackmate_positions" not in handle:
+            return None
+        return np.asarray(handle["trackmate_positions"])
+
+
+def stitched_tracks_to_animation_arrays(
+    tracks,
+    *,
+    frame_start,
+    frame_stop,
+    height,
+    width,
+    max_tracks=None,
+):
+    """Convert stitched global-coordinate tracks to ``build_animation`` arrays."""
+    selected = []
+    frame_start = int(frame_start)
+    frame_stop = int(frame_stop)
+    num_frames = frame_stop - frame_start
+    if num_frames <= 0:
+        raise ValueError("frame_stop must be greater than frame_start.")
+
+    for track in tracks:
+        points = np.asarray(track.points)
+        if points.size == 0:
+            continue
+        frames = points[:, 0].astype(np.int64)
+        y = points[:, 1]
+        x = points[:, 2]
+        keep = (
+            (frames >= frame_start)
+            & (frames < frame_stop)
+            & np.isfinite(x)
+            & np.isfinite(y)
+            & (x >= 0)
+            & (x < width)
+            & (y >= 0)
+            & (y < height)
+        )
+        if np.any(keep):
+            selected.append((track, points[keep]))
+
+    selected.sort(key=lambda item: (item[0].mean_score, item[0].length), reverse=True)
+    if max_tracks is not None:
+        selected = selected[: int(max_tracks)]
+
+    num_tracks = len(selected)
+    obj_est = np.zeros((num_frames, num_tracks), dtype=np.float32)
+    xy_est = np.zeros((num_frames, num_tracks, 2), dtype=np.float32)
+    est_H = np.zeros(num_tracks, dtype=np.float32)
+    est_C = np.zeros(num_tracks, dtype=np.float32)
+
+    for query_index, (track, points) in enumerate(selected):
+        local_frames = points[:, 0].astype(np.int64) - frame_start
+        for row_index, local_frame in enumerate(local_frames):
+            score = float(points[row_index, 3])
+            if score >= obj_est[local_frame, query_index]:
+                obj_est[local_frame, query_index] = score
+                xy_est[local_frame, query_index, 0] = points[row_index, 2]
+                xy_est[local_frame, query_index, 1] = points[row_index, 1]
+        est_H[query_index] = float(track.h)
+        est_C[query_index] = float(track.diffusion)
+
+    return obj_est, xy_est, est_H, est_C
+
+
+def trackmate_positions_to_animation_gt(
+    ground_truth_positions,
+    *,
+    frame_start,
+    frame_stop,
+    max_tracks=None,
+):
+    """Convert dense TrackMate ``tracks,frames,xy`` positions for ``build_animation``."""
+    if ground_truth_positions is None:
+        return [], [], []
+
+    positions = np.asarray(ground_truth_positions)
+    if positions.ndim != 3 or positions.shape[2] != 2:
+        raise ValueError(
+            "ground_truth_positions must have shape tracks,frames,xy; "
+            f"got {positions.shape}."
+        )
+
+    frame_start = int(frame_start)
+    frame_stop = min(int(frame_stop), positions.shape[1])
+    if frame_start >= frame_stop:
+        return [], [], []
+
+    selected = []
+    window = positions[:, frame_start:frame_stop, :]
+    valid = np.isfinite(window[:, :, 0]) & np.isfinite(window[:, :, 1])
+    for track_index in np.flatnonzero(np.any(valid, axis=1)):
+        selected.append((int(np.sum(valid[track_index])), window[track_index].astype(np.float32, copy=True)))
+
+    selected.sort(key=lambda item: item[0], reverse=True)
+    if max_tracks is not None:
+        selected = selected[: int(max_tracks)]
+
+    gt_pos_list = [pos for _, pos in selected]
+    return gt_pos_list, [None] * len(gt_pos_list), [None] * len(gt_pos_list)
+
+
+def build_stitched_tracks_animation(
+    video_frames,
+    tracks,
+    *,
+    start_frame=0,
+    num_frames=180,
+    interval=80,
+    tail=20,
+    max_labels=30,
+    max_tracks=None,
+    ground_truth_positions=None,
+    show_ground_truth=True,
+    max_gt_labels=20,
+    show_predicted_constants=True,
+    title_prefix="SPTnet stitched inference",
+):
+    """Build a stitched-results animation using the standard result visualizer."""
+    video_frames = np.asarray(video_frames)
+    if video_frames.ndim != 3:
+        raise ValueError(f"video_frames must have shape T,H,W; got {video_frames.shape}.")
+    total_frames, height, width = video_frames.shape
+    if start_frame < 0 or start_frame >= total_frames:
+        raise ValueError(f"start_frame={start_frame} is outside the movie range 0..{total_frames - 1}.")
+
+    frame_stop = min(total_frames, start_frame + num_frames)
+    frames = video_frames[start_frame:frame_stop]
+    if frames.size == 0:
+        raise ValueError("No frames selected for display.")
+
+    obj_est, xy_est, est_H, est_C = stitched_tracks_to_animation_arrays(
+        tracks,
+        frame_start=start_frame,
+        frame_stop=frame_stop,
+        height=height,
+        width=width,
+        max_tracks=max_tracks,
+    )
+    gt_pos_list, gt_h_list, gt_c_list = trackmate_positions_to_animation_gt(
+        ground_truth_positions if show_ground_truth else None,
+        frame_start=start_frame,
+        frame_stop=frame_stop,
+        max_tracks=max_gt_labels,
+    )
+
+    return build_animation(
+        video_frames=frames,
+        gt_pos_list=gt_pos_list,
+        gt_h_list=gt_h_list,
+        gt_c_list=gt_c_list,
+        obj_est=obj_est,
+        xy_est=xy_est,
+        est_H=est_H,
+        est_C=est_C,
+        threshold=0.0,
+        min_track_len=1,
+        num_queries=obj_est.shape[1],
+        interval=interval,
+        gt_coordinate_offset=0.0,
+        show_ground_truth_constants=False,
+        show_predicted_constants=show_predicted_constants,
+    )
+
+
+def show_stitched_segmentation_results(
+    movie_path,
+    result_pattern=None,
+    result_paths=None,
+    *,
+    video_index=0,
+    threshold=0.90,
+    min_track_len=5,
+    max_step=None,
+    deduplicate=True,
+    dedup_overlap=5,
+    dedup_distance=3.0,
+    tile_shape_yx=(64, 64),
+    xy_order="yx",
+    start_frame=0,
+    num_frames=180,
+    interval=80,
+    tail=20,
+    max_labels=30,
+    max_tracks=None,
+    show_ground_truth=True,
+    max_gt_labels=20,
+    show_predicted_constants=True,
+    return_tracks=False,
+):
+    """Stitch segmented inference result files and animate them on a full movie.
+
+    Parameters
+    ----------
+    movie_path:
+        Full source movie, usually the pre-segmentation ``.h5`` or TIFF.
+    result_pattern:
+        Glob pattern for per-tile result files, for example
+        ``"RealData/inference_results/result_full_realdata_*.h5"``.
+    result_paths:
+        Explicit iterable of result files. If provided, ``result_pattern`` is ignored.
+    return_tracks:
+        If true, return ``(animation, tracks)``.
+    """
+    if result_paths is None:
+        if result_pattern is None:
+            raise ValueError("Either result_pattern or result_paths must be provided.")
+        result_paths = sorted(Path(path) for path in glob.glob(str(result_pattern)))
+    else:
+        result_paths = sorted(Path(path) for path in result_paths)
+    if not result_paths:
+        raise FileNotFoundError(f"No stitched result files found for {result_pattern!r}.")
+
+    tracks = segmentation_stitch.stitch_inference_results(
+        result_paths,
+        score_threshold=threshold,
+        min_track_len=min_track_len,
+        max_step=max_step,
+        deduplicate=deduplicate,
+        dedup_overlap=dedup_overlap,
+        dedup_distance=dedup_distance,
+        tile_shape_yx=tile_shape_yx,
+        xy_order=xy_order,
+    )
+    video_frames = load_movie_for_stitched_results(movie_path, video_index=video_index)
+    gt_positions = (
+        load_trackmate_ground_truth_for_stitched_results(movie_path)
+        if show_ground_truth
+        else None
+    )
+    ani = build_stitched_tracks_animation(
+        video_frames,
+        tracks,
+        start_frame=start_frame,
+        num_frames=num_frames,
+        interval=interval,
+        tail=tail,
+        max_labels=max_labels,
+        max_tracks=max_tracks,
+        ground_truth_positions=gt_positions,
+        show_ground_truth=show_ground_truth,
+        max_gt_labels=max_gt_labels,
+        show_predicted_constants=show_predicted_constants,
+    )
+    if return_tracks:
+        return ani, tracks
+    return ani
+
+
 # ─── Core animation builder ───────────────────────────────────────────────────
 
 def build_animation(video_frames, gt_pos_list, gt_h_list, gt_c_list,
                     obj_est, xy_est, est_H, est_C,
                     threshold=0.90, min_track_len=5, num_queries=20,
-                    interval=200):
+                    interval=200, gt_coordinate_offset=32.0,
+                    show_ground_truth_constants=True,
+                    show_predicted_constants=True):
     """
     Build a matplotlib FuncAnimation for one video.
 
@@ -476,12 +767,20 @@ def build_animation(video_frames, gt_pos_list, gt_h_list, gt_c_list,
     min_track_len: minimum frames above threshold to show a track
     num_queries  : number of query slots
     interval     : ms between frames in the animation
+    gt_coordinate_offset
+                 : value added to GT coordinates before plotting. Simulated
+                   MAT labels use 32; full-frame TrackMate labels use 0.
 
     Returns
     -------
     matplotlib.animation.FuncAnimation
     """
     T, H, W = video_frames.shape
+    num_queries = min(int(num_queries), int(obj_est.shape[1]))
+    obj_est = obj_est[:, :num_queries]
+    xy_est = xy_est[:, :num_queries, :]
+    est_H = np.asarray(est_H).ravel()
+    est_C = np.asarray(est_C).ravel()
     cropsize = 5
     d = cropsize / 2.0
     frmlist = np.arange(T)
@@ -532,8 +831,8 @@ def build_animation(video_frames, gt_pos_list, gt_h_list, gt_c_list,
             if np.isnan(pos[frame, 0]):
                 continue
 
-            gt_x = pos[:, 0] + 32   # [-32,32] → [0,64]
-            gt_y = pos[:, 1] + 32
+            gt_x = pos[:, 0] + gt_coordinate_offset
+            gt_y = pos[:, 1] + gt_coordinate_offset
 
             # Current position (X marker)
             sc = ax.scatter(gt_x[frame], gt_y[frame], s=100, c='red',
@@ -547,15 +846,15 @@ def build_animation(video_frames, gt_pos_list, gt_h_list, gt_c_list,
                           markersize=2, linewidth=1.5, markerfacecolor='red', zorder=9)
             dynamic_artists.append(ln)
 
-            # H and D labels
-            h_val = gt_h_list[pi] if gt_h_list[pi] is not None else 0
-            c_val = gt_c_list[pi] if gt_c_list[pi] is not None else 0
-            lx, ly = gt_x[frame] - 0.5 * d, gt_y[frame] + 2.5 * d
-            t1 = ax.text(lx,       ly, f'H={h_val:.2f},', color='red',
-                         fontsize=7, fontweight='bold', zorder=11)
-            t2 = ax.text(lx + 2*d, ly, f'D={c_val:.2f}',  color='red',
-                         fontsize=7, fontweight='bold', zorder=11)
-            dynamic_artists.extend([t1, t2])
+            if show_ground_truth_constants:
+                h_val = gt_h_list[pi] if pi < len(gt_h_list) and gt_h_list[pi] is not None else 0
+                c_val = gt_c_list[pi] if pi < len(gt_c_list) and gt_c_list[pi] is not None else 0
+                lx, ly = gt_x[frame] - 0.5 * d, gt_y[frame] + 2.5 * d
+                t1 = ax.text(lx,       ly, f'H={h_val:.2f},', color='red',
+                             fontsize=7, fontweight='bold', zorder=11)
+                t2 = ax.text(lx + 2*d, ly, f'D={c_val:.2f}',  color='red',
+                             fontsize=7, fontweight='bold', zorder=11)
+                dynamic_artists.extend([t1, t2])
 
         # ── Predictions (parula-coloured per query) ───────────────────────
         for qi in range(num_queries):
@@ -587,12 +886,14 @@ def build_animation(video_frames, gt_pos_list, gt_h_list, gt_c_list,
             ax.add_patch(rect)
             dynamic_artists.append(rect)
 
-            # H and D labels
-            t1 = ax.text(cx - 0.5*d, cy - 0.5*d, f'H={est_H[qi]:.4f},',
-                         color=color, fontsize=7, fontweight='bold', zorder=7)
-            t2 = ax.text(cx + 1.5*d, cy - 0.5*d, f'D={est_C[qi]:.4f}',
-                         color=color, fontsize=7, fontweight='bold', zorder=7)
-            dynamic_artists.extend([t1, t2])
+            if show_predicted_constants:
+                h_val = est_H[qi] if qi < est_H.size else 0
+                c_val = est_C[qi] if qi < est_C.size else 0
+                t1 = ax.text(cx - 0.5*d, cy - 0.5*d, f'H={h_val:.4f},',
+                             color=color, fontsize=7, fontweight='bold', zorder=7)
+                t2 = ax.text(cx + 1.5*d, cy - 0.5*d, f'D={c_val:.4f}',
+                             color=color, fontsize=7, fontweight='bold', zorder=7)
+                dynamic_artists.extend([t1, t2])
 
         return [im] + dynamic_artists
 

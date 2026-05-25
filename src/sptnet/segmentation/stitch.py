@@ -84,6 +84,23 @@ def _attr_ints(attrs: dict[str, object], name: str) -> list[int]:
     return [int(item) for item in arr.tolist()]
 
 
+def _candidate_source_file_for_result(path: os.PathLike) -> Path | None:
+    """Find the sibling tile file for a result when ``source_file`` is stale."""
+    path = Path(path)
+    stem = path.stem
+    if not stem.startswith("result_"):
+        return None
+    source_name = f"{stem[len('result_') :]}{path.suffix}"
+    candidates = [
+        path.parent / source_name,
+        path.parent.parent / source_name,
+    ]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def parse_tile_locations(
     path: os.PathLike,
     count: int | None = None,
@@ -114,11 +131,20 @@ def parse_tile_locations(
 
     if "source_file" in attrs:
         source_file = Path(str(attrs["source_file"]))
+        if not source_file.exists():
+            source_file = _candidate_source_file_for_result(path) or source_file
         if source_file.exists():
             try:
                 return parse_tile_locations(source_file, count=count, stride=stride)
             except ValueError:
                 pass
+
+    sibling_source = _candidate_source_file_for_result(path)
+    if sibling_source is not None:
+        try:
+            return parse_tile_locations(sibling_source, count=count, stride=stride)
+        except ValueError:
+            pass
 
     return [parse_tile_location(path, stride=stride)]
 
@@ -137,11 +163,20 @@ def parse_tile_location(path: os.PathLike, stride: Sequence[int] | None = None) 
         )
     if "source_file" in attrs:
         source_file = Path(str(attrs["source_file"]))
+        if not source_file.exists():
+            source_file = _candidate_source_file_for_result(path) or source_file
         if source_file.exists():
             try:
                 return parse_tile_location(source_file, stride=stride)
             except ValueError:
                 pass
+
+    sibling_source = _candidate_source_file_for_result(path)
+    if sibling_source is not None:
+        try:
+            return parse_tile_location(sibling_source, stride=stride)
+        except ValueError:
+            pass
 
     stem = path.stem
     if stem.startswith("result_"):
@@ -260,14 +295,31 @@ def load_inference_arrays(
     path: os.PathLike,
     *,
     tile_shape_yx: Sequence[int] = (64, 64),
+    xy_order: str = "yx",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Load inference arrays as obj ``N,T,Q`` and xy ``N,T,Q,2`` in tile pixels."""
+    data = _read_inference_data(path)
+    return _format_inference_arrays(data, tile_shape_yx=tile_shape_yx, xy_order=xy_order)
+
+
+def _read_inference_data(path: os.PathLike) -> dict[str, np.ndarray]:
     path = Path(path)
     try:
         with h5py.File(path, "r") as handle:
-            data = {name: np.asarray(handle[name]) for name in handle.keys()}
+            return {name: np.asarray(handle[name]) for name in handle.keys()}
     except OSError:
-        data = {key: value for key, value in sio.loadmat(path).items() if not key.startswith("__")}
+        return {key: value for key, value in sio.loadmat(path).items() if not key.startswith("__")}
+
+
+def _format_inference_arrays(
+    data: dict[str, np.ndarray],
+    *,
+    tile_shape_yx: Sequence[int] = (64, 64),
+    xy_order: str = "xy",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Normalize inference arrays to obj ``N,T,Q`` and xy ``N,T,Q,2``."""
+    if xy_order not in {"xy", "yx"}:
+        raise ValueError(f"xy_order must be 'xy' or 'yx', got {xy_order!r}.")
 
     obj = np.asarray(data["obj_estimation"])
     xy = np.asarray(data["estimation_xy"])
@@ -277,10 +329,12 @@ def load_inference_arrays(
     if obj.ndim == 4:
         obj = np.squeeze(np.transpose(obj, (0, 3, 2, 1)), axis=-1)
     elif obj.ndim != 3:
-        raise ValueError(f"Unexpected obj_estimation shape {obj.shape} in {path}.")
+        raise ValueError(f"Unexpected obj_estimation shape {obj.shape}.")
 
     if xy.ndim != 4:
-        raise ValueError(f"Unexpected estimation_xy shape {xy.shape} in {path}.")
+        raise ValueError(f"Unexpected estimation_xy shape {xy.shape}.")
+    if xy_order == "yx":
+        xy = xy[..., [1, 0]]
     tile_y, tile_x = (int(v) for v in tile_shape_yx)
     xy_scale = np.asarray([tile_x / 2.0, tile_y / 2.0], dtype=np.float32)
     xy = np.transpose(xy * xy_scale + xy_scale, (0, 2, 1, 3))
@@ -298,6 +352,45 @@ def load_inference_arrays(
     return obj, xy, h, diffusion
 
 
+def _result_source_shape_tyx(path: os.PathLike) -> tuple[int, int, int] | None:
+    """Return original source movie shape for a result/tile file when available."""
+    attrs = read_hdf5_attrs(path)
+    if "source_shape_tyx" in attrs:
+        return tuple(int(value) for value in np.asarray(attrs["source_shape_tyx"]).tolist())
+
+    source_file = attrs.get("source_file")
+    if source_file is None:
+        source_path = _candidate_source_file_for_result(path)
+        if source_path is None:
+            return None
+    else:
+        source_path = Path(str(source_file))
+        if not source_path.exists():
+            source_path = _candidate_source_file_for_result(path) or source_path
+    if not source_path.exists():
+        return None
+    source_attrs = read_hdf5_attrs(source_path)
+    if "source_shape_tyx" not in source_attrs:
+        return None
+    return tuple(int(value) for value in np.asarray(source_attrs["source_shape_tyx"]).tolist())
+
+
+def _valid_tile_shape_for_location(
+    loc: TileLocation,
+    source_shape_tyx: tuple[int, int, int] | None,
+    tile_shape_yx: Sequence[int],
+) -> tuple[int, int]:
+    """Real, unpadded ``Y,X`` extent for one tile location."""
+    tile_y, tile_x = (int(value) for value in tile_shape_yx)
+    if source_shape_tyx is None:
+        return tile_y, tile_x
+
+    _, source_y, source_x = source_shape_tyx
+    valid_y = max(0, min(tile_y, int(source_y) - int(loc.y_start)))
+    valid_x = max(0, min(tile_x, int(source_x) - int(loc.x_start)))
+    return valid_y, valid_x
+
+
 def tracks_from_result_file(
     result_path: os.PathLike,
     *,
@@ -306,20 +399,32 @@ def tracks_from_result_file(
     max_step: float | None = None,
     stride: Sequence[int] | None = None,
     tile_shape_yx: Sequence[int] = (64, 64),
+    xy_order: str = "yx",
 ) -> List[Track]:
     """Convert one tile result file into global-coordinate tracks."""
     result_path = Path(result_path)
-    obj, xy, h, diffusion = load_inference_arrays(result_path, tile_shape_yx=tile_shape_yx)
+    obj, xy, h, diffusion = load_inference_arrays(result_path, tile_shape_yx=tile_shape_yx, xy_order=xy_order)
     locations = parse_tile_locations(result_path, count=obj.shape[0], stride=stride)
+    source_shape_tyx = _result_source_shape_tyx(result_path)
     tracks: list[Track] = []
     for sample_index in range(obj.shape[0]):
         loc = locations[sample_index]
+        valid_y, valid_x = _valid_tile_shape_for_location(loc, source_shape_tyx, tile_shape_yx)
+        if valid_y <= 0 or valid_x <= 0:
+            continue
         for query_index in range(obj.shape[2]):
-            keep = obj[sample_index, :, query_index] >= score_threshold
+            xy_query = xy[sample_index, :, query_index, :]
+            in_real_tile = (
+                (xy_query[:, 0] >= 0)
+                & (xy_query[:, 0] < valid_x)
+                & (xy_query[:, 1] >= 0)
+                & (xy_query[:, 1] < valid_y)
+            )
+            keep = (obj[sample_index, :, query_index] >= score_threshold) & in_real_tile
             if int(np.sum(keep)) < min_track_len:
                 continue
             frames = np.nonzero(keep)[0] + loc.t_start
-            xy_local = xy[sample_index, keep, query_index, :]
+            xy_local = xy_query[keep, :]
             points = np.column_stack(
                 [
                     frames,
@@ -345,34 +450,78 @@ def tracks_from_result_file(
     return tracks
 
 
-def _is_duplicate(track: Track, kept: Track, min_overlap: int, distance_threshold: float) -> bool:
+def _is_duplicate(
+    track: Track,
+    kept: Track,
+    min_overlap: int,
+    distance_threshold: float,
+    *,
+    close_fraction: float = 0.5,
+) -> bool:
     frames_a = track.points[:, 0].astype(np.int64)
     frames_b = kept.points[:, 0].astype(np.int64)
     common, idx_a, idx_b = np.intersect1d(frames_a, frames_b, return_indices=True)
     if common.size < min_overlap:
         return False
     dist = np.sqrt(np.sum((track.points[idx_a, 1:3] - kept.points[idx_b, 1:3]) ** 2, axis=1))
-    return int(np.sum(dist <= distance_threshold)) >= min_overlap
+    return (
+        float(np.median(dist)) <= distance_threshold
+        and float(np.mean(dist <= distance_threshold)) >= close_fraction
+    )
+
+
+def _merge_duplicate_tracks(primary: Track, duplicate: Track) -> Track:
+    """Merge duplicate tracks, keeping the highest-confidence point per frame."""
+    by_frame: dict[int, np.ndarray] = {}
+    for points in (primary.points, duplicate.points):
+        for point in points:
+            frame = int(point[0])
+            existing = by_frame.get(frame)
+            if existing is None or point[3] > existing[3]:
+                by_frame[frame] = point.copy()
+
+    merged_points = np.asarray([by_frame[frame] for frame in sorted(by_frame)], dtype=np.float32)
+    primary_weight = max(primary.length, 1)
+    duplicate_weight = max(duplicate.length, 1)
+    total_weight = primary_weight + duplicate_weight
+
+    return replace(
+        primary,
+        points=merged_points,
+        h=(primary.h * primary_weight + duplicate.h * duplicate_weight) / total_weight,
+        diffusion=(
+            primary.diffusion * primary_weight + duplicate.diffusion * duplicate_weight
+        ) / total_weight,
+    )
 
 
 def deduplicate_tracks(
     tracks: Sequence[Track],
     *,
     min_overlap: int = 5,
-    distance_threshold: float = 1.0,
+    distance_threshold: float = 3.0,
 ) -> List[Track]:
-    """Remove repeated tracks using overlapping frames and spatial distance.
+    """Merge repeated tracks using overlapping frames and spatial distance.
 
-    Higher mean confidence wins, with track length as the tie breaker. Unlike
-    the MATLAB helper, this compares actual overlapping global frames rather
-    than assuming aligned row positions in a cell array.
+    Higher mean confidence wins the representative identity, but duplicate
+    tracks are merged frame-by-frame so useful points from a lower-ranked
+    overlapping tile are not discarded.
     """
     ranked = sorted(tracks, key=lambda tr: (tr.mean_score, tr.length), reverse=True)
     kept: list[Track] = []
     for track in ranked:
-        if any(_is_duplicate(track, existing, min_overlap, distance_threshold) for existing in kept):
-            continue
-        kept.append(track)
+        duplicate_index = next(
+            (
+                index
+                for index, existing in enumerate(kept)
+                if _is_duplicate(track, existing, min_overlap, distance_threshold)
+            ),
+            None,
+        )
+        if duplicate_index is not None:
+            kept[duplicate_index] = _merge_duplicate_tracks(kept[duplicate_index], track)
+        else:
+            kept.append(track)
     return [replace(track, track_id=index) for index, track in enumerate(kept)]
 
 
@@ -384,9 +533,10 @@ def stitch_inference_results(
     max_step: float | None = None,
     deduplicate: bool = True,
     dedup_overlap: int = 5,
-    dedup_distance: float = 1.0,
+    dedup_distance: float = 3.0,
     stride: Sequence[int] | None = None,
     tile_shape_yx: Sequence[int] = (64, 64),
+    xy_order: str = "yx",
 ) -> List[Track]:
     """Load per-tile inference outputs, transform to global coordinates, and deduplicate."""
     tracks: list[Track] = []
@@ -399,6 +549,7 @@ def stitch_inference_results(
                 max_step=max_step,
                 stride=stride,
                 tile_shape_yx=tile_shape_yx,
+                xy_order=xy_order,
             )
         )
     if deduplicate:
@@ -441,9 +592,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-step", type=float, default=None, help="Reject tracks with any step larger than this many pixels.")
     parser.add_argument("--no-deduplicate", action="store_true")
     parser.add_argument("--dedup-overlap", type=int, default=5)
-    parser.add_argument("--dedup-distance", type=float, default=1.0)
+    parser.add_argument("--dedup-distance", type=float, default=3.0)
     parser.add_argument("--stride", nargs=3, type=int, metavar=("T", "Y", "X"), help="Required for legacy block###_x#_y#_t# names.")
     parser.add_argument("--tile-shape", nargs=2, type=int, default=(64, 64), metavar=("Y", "X"), help="Tile size used to scale normalized xy predictions.")
+    parser.add_argument("--xy-order", choices=("xy", "yx"), default="yx", help="Coordinate order in estimation_xy. Current SPTnet inference outputs are yx.")
     return parser
 
 
@@ -463,6 +615,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         dedup_distance=args.dedup_distance,
         stride=args.stride,
         tile_shape_yx=args.tile_shape,
+        xy_order=args.xy_order,
     )
     write_tracks_csv(tracks, args.output)
     print(f"Wrote {len(tracks)} stitched track(s) to {args.output}")

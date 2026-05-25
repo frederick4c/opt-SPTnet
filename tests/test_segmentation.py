@@ -96,6 +96,27 @@ def test_split_tiff_movie_writes_unlabeled_hdf5_tiles(tmp_path):
         assert handle.attrs["source_file"].endswith("movie.tif")
 
 
+def test_split_movie_file_aligns_edge_tiles_to_reduce_padding(tmp_path):
+    movie = np.arange(3 * 4 * 6, dtype=np.float32).reshape(3, 4, 6)
+    input_path = tmp_path / "movie.h5"
+    _write_hdf5(input_path, "timelapsedata", movie)
+
+    result = split_movie_file(
+        input_path,
+        output_dir=tmp_path / "tiles",
+        block_shape=(3, 4, 4),
+        overlap=(0, 0, 0),
+        dtype="none",
+    )
+
+    x_starts = sorted({tile.x_start for tile in result.tiles})
+    assert x_starts == [0, 2]
+    assert result.tiles[-1].padded_shape == movie.shape
+    with h5py.File(tmp_path / "tiles" / "movie_x002_y001.h5", "r") as handle:
+        assert handle.attrs["x_start"] == 2
+        np.testing.assert_array_equal(handle["timelapsedata"][0], movie[:, :, 2:6])
+
+
 def test_stitch_movie_tiles_averages_overlap_and_crops(tmp_path):
     movie = np.arange(4 * 3 * 3, dtype=np.float32).reshape(4, 3, 3)
     input_path = tmp_path / "movie.h5"
@@ -209,11 +230,131 @@ def test_stitch_inference_results_uses_temporal_starts_from_tile_source(tmp_path
         score_threshold=0.9,
         min_track_len=3,
         deduplicate=False,
+        tile_shape_yx=(4, 4),
     )
 
     assert len(tracks) == 2
     np.testing.assert_array_equal(tracks[0].points[:, 0], np.array([0, 1, 2], dtype=np.float32))
     np.testing.assert_array_equal(tracks[1].points[:, 0], np.array([2, 3, 4], dtype=np.float32))
+
+
+def test_stitch_inference_results_recovers_stale_source_file_from_sibling_tile(tmp_path):
+    tile_dir = tmp_path / "tiles"
+    result_dir = tile_dir / "inference_results"
+    tile_dir.mkdir()
+    result_dir.mkdir()
+    tile_path = tile_dir / "full_realdata_x002_y001.h5"
+    with h5py.File(tile_path, "w") as handle:
+        handle.create_dataset("timelapsedata", data=np.zeros((1, 3, 4, 4), dtype=np.float32))
+        handle.attrs["format"] = "sptnet-segmentation-tile"
+        handle.attrs["sample_index"] = 0
+        handle.attrs["t_start"] = 0
+        handle.attrs["t_starts"] = np.array([0])
+        handle.attrs["y_start"] = 0
+        handle.attrs["x_start"] = 4
+        handle.attrs["source_shape_tyx"] = np.array([3, 4, 8])
+
+    result_path = result_dir / "result_full_realdata_x002_y001.h5"
+    records = {
+        "obj_estimation": [np.ones((1, 1, 3), dtype=np.float32)],
+        "estimation_xy": [np.zeros((1, 1, 3, 2), dtype=np.float32)],
+        "estimation_H": [np.array([[0.5]], dtype=np.float32)],
+        "estimation_C": [np.array([[0.25]], dtype=np.float32)],
+    }
+    write_inference_result_file(result_path, stack_result_arrays(records), source_file=tmp_path / "old_tiles" / tile_path.name)
+
+    tracks = stitch_inference_results(
+        [result_path],
+        score_threshold=0.9,
+        min_track_len=3,
+        deduplicate=False,
+        tile_shape_yx=(4, 4),
+    )
+
+    assert len(tracks) == 1
+    np.testing.assert_allclose(tracks[0].points[:, 2], 6.0)
+
+
+def test_stitch_inference_results_uses_yx_coordinate_order_by_default(tmp_path):
+    tile_path = tmp_path / "movie_x001_y001.h5"
+    movie = np.zeros((1, 3, 64, 64), dtype=np.float32)
+    movie[:, :, 20, 10] = 100.0
+    with h5py.File(tile_path, "w") as handle:
+        handle.create_dataset("timelapsedata", data=movie)
+        handle.attrs["format"] = "sptnet-segmentation-tile"
+        handle.attrs["sample_index"] = 0
+        handle.attrs["t_start"] = 0
+        handle.attrs["t_starts"] = np.array([0])
+        handle.attrs["y_start"] = 0
+        handle.attrs["x_start"] = 0
+
+    result_path = tmp_path / "result_movie_x001_y001.h5"
+    raw_y = (20.0 - 32.0) / 32.0
+    raw_x = (10.0 - 32.0) / 32.0
+    records = {
+        "obj_estimation": [np.ones((1, 1, 3), dtype=np.float32)],
+        "estimation_xy": [np.array([[[[raw_y, raw_x], [raw_y, raw_x], [raw_y, raw_x]]]], dtype=np.float32)],
+        "estimation_H": [np.array([[0.5]], dtype=np.float32)],
+        "estimation_C": [np.array([[0.25]], dtype=np.float32)],
+    }
+    write_inference_result_file(result_path, stack_result_arrays(records), source_file=tile_path)
+
+    tracks = stitch_inference_results(
+        [result_path],
+        score_threshold=0.9,
+        min_track_len=3,
+        deduplicate=False,
+    )
+
+    assert len(tracks) == 1
+    np.testing.assert_allclose(tracks[0].points[:, 1], 20.0)
+    np.testing.assert_allclose(tracks[0].points[:, 2], 10.0)
+
+
+def test_stitch_inference_results_drops_predictions_in_padded_tile_region(tmp_path):
+    tile_path = tmp_path / "movie_x002_y001.h5"
+    with h5py.File(tile_path, "w") as handle:
+        handle.create_dataset("timelapsedata", data=np.zeros((1, 3, 4, 4), dtype=np.float32))
+        handle.attrs["format"] = "sptnet-segmentation-tile"
+        handle.attrs["sample_index"] = 0
+        handle.attrs["t_start"] = 0
+        handle.attrs["t_starts"] = np.array([0])
+        handle.attrs["y_start"] = 0
+        handle.attrs["x_start"] = 4
+        handle.attrs["source_shape_tyx"] = np.array([3, 4, 6])
+
+    inside_y = (1.0 - 2.0) / 2.0
+    inside_x = (1.0 - 2.0) / 2.0
+    padded_y = inside_y
+    padded_x = (3.0 - 2.0) / 2.0
+    result_path = tmp_path / "result_movie_x002_y001.h5"
+    records = {
+        "obj_estimation": [np.ones((2, 1, 3), dtype=np.float32)],
+        "estimation_xy": [
+            np.array(
+                [
+                    [[[inside_y, inside_x], [inside_y, inside_x], [inside_y, inside_x]]],
+                    [[[padded_y, padded_x], [padded_y, padded_x], [padded_y, padded_x]]],
+                ],
+                dtype=np.float32,
+            )
+        ],
+        "estimation_H": [np.array([[0.5], [0.6]], dtype=np.float32)],
+        "estimation_C": [np.array([[0.25], [0.35]], dtype=np.float32)],
+    }
+    write_inference_result_file(result_path, stack_result_arrays(records), source_file=tile_path)
+
+    tracks = stitch_inference_results(
+        [result_path],
+        score_threshold=0.9,
+        min_track_len=3,
+        deduplicate=False,
+        tile_shape_yx=(4, 4),
+    )
+
+    assert len(tracks) == 1
+    np.testing.assert_allclose(tracks[0].points[:, 1], 1.0)
+    np.testing.assert_allclose(tracks[0].points[:, 2], 5.0)
 
 
 def test_deduplicate_tracks_keeps_highest_scoring_overlap():
@@ -239,6 +380,46 @@ def test_deduplicate_tracks_keeps_highest_scoring_overlap():
     assert len(kept) == 1
     assert kept[0].query_index == 1
     assert kept[0].track_id == 0
+
+
+def test_deduplicate_tracks_merges_nearby_overlapping_tile_tracks():
+    left_tile = Track(
+        points=np.column_stack(
+            [
+                np.arange(6),
+                np.full(6, 10.0),
+                np.full(6, 12.0),
+                np.full(6, 0.92),
+            ]
+        ).astype(np.float32),
+        h=0.4,
+        diffusion=0.1,
+        query_index=0,
+        sample_index=0,
+        tile_path="left.h5",
+    )
+    right_tile = Track(
+        points=np.column_stack(
+            [
+                np.arange(3, 9),
+                np.full(6, 11.5),
+                np.full(6, 13.5),
+                np.full(6, 0.95),
+            ]
+        ).astype(np.float32),
+        h=0.6,
+        diffusion=0.3,
+        query_index=1,
+        sample_index=0,
+        tile_path="right.h5",
+    )
+
+    kept = deduplicate_tracks([left_tile, right_tile], min_overlap=3, distance_threshold=3.0)
+
+    assert len(kept) == 1
+    np.testing.assert_array_equal(kept[0].points[:, 0], np.arange(9, dtype=np.float32))
+    np.testing.assert_allclose(kept[0].points[3:6, 1], 11.5)
+    np.testing.assert_allclose(kept[0].points[3:6, 2], 13.5)
 
 
 def test_stitch_cli_csv_shape_is_simple_for_downstream_tools(tmp_path):

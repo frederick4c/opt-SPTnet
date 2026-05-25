@@ -61,9 +61,12 @@ Tile files are named by 1-based spatial tile order, for example
 `movie_x001_y001.h5` or `movie_n001_x001_y001.h5` for batched inputs. Each
 spatial tile stores all temporal clips for that position as `timelapsedata` in
 `N,T,Y,X` order, where `N` is the number of temporal blocks. The temporal starts
-are saved in file metadata for stitching. Python-native inputs use `TYX` or
-`NTYX` axes by default; legacy MATLAB arrays saved as `H,W,T,N` can be split
-with `--input-axes YXTN`. TIFF inputs are written as unlabeled HDF5 tile files
+are saved in file metadata for stitching. Tile starts are edge-aligned by
+default, so the last spatial and temporal tiles snap back onto the real movie
+instead of becoming mostly padding. Use `--no-align-edges` only when you need
+old stride-only tiling. Python-native inputs use `TYX` or `NTYX` axes by
+default; legacy MATLAB arrays saved as `H,W,T,N` can be split with
+`--input-axes YXTN`. TIFF inputs are written as unlabeled HDF5 tile files
 containing `timelapsedata` only.
 
 After running inference on the tiles, stitch per-tile predictions back into
