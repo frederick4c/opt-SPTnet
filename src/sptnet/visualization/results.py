@@ -611,7 +611,13 @@ def build_stitched_tracks_animation(
     show_predicted_constants=True,
     title_prefix="SPTnet stitched inference",
 ):
-    """Build a stitched-results animation using the standard result visualizer."""
+    """Build an animation for already stitched segmentation tracks.
+
+    This is a compatibility wrapper around :func:`build_animation`. It converts
+    global-coordinate :class:`sptnet.segmentation.stitch.Track` objects into the
+    same array format used by the original SPTnet visualizer, and optionally
+    overlays dense TrackMate ground-truth positions.
+    """
     video_frames = np.asarray(video_frames)
     if video_frames.ndim != 3:
         raise ValueError(f"video_frames must have shape T,H,W; got {video_frames.shape}.")
@@ -694,6 +700,25 @@ def show_stitched_segmentation_results(
         ``"RealData/inference_results/result_full_realdata_*.h5"``.
     result_paths:
         Explicit iterable of result files. If provided, ``result_pattern`` is ignored.
+    threshold:
+        Minimum model object probability used before stitching tracks.
+    min_track_len:
+        Minimum number of kept frames for a query to become a stitched track.
+    deduplicate:
+        If true, merge repeated tracks from overlapping tiles.
+    dedup_overlap, dedup_distance:
+        Duplicate-track merge settings passed to
+        :func:`sptnet.segmentation.stitch.stitch_inference_results`.
+    tile_shape_yx:
+        Tile size used to scale normalized model coordinates.
+    xy_order:
+        Coordinate order in ``estimation_xy``. Current SPTnet inference outputs
+        use ``"yx"``.
+    start_frame, num_frames:
+        Full-movie frame window to animate.
+    show_ground_truth:
+        If true and ``movie_path`` contains ``trackmate_positions``, overlay
+        TrackMate labels in red.
     return_tracks:
         If true, return ``(animation, tracks)``.
     """

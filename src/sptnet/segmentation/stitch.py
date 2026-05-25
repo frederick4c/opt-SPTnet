@@ -1,4 +1,15 @@
-"""Stitch segmented SPTnet inputs and inference outputs."""
+"""Stitch segmented SPTnet inputs and inference outputs.
+
+The splitter writes one HDF5 file per spatial tile, with all temporal clips for
+that tile stacked in ``timelapsedata``. After model inference, this module maps
+per-tile ``result_*.h5``/``.mat`` files back into full-movie coordinates,
+filters predictions that landed in padded tile regions, and merges duplicate
+tracks from overlapping tiles.
+
+Current SPTnet inference outputs store normalized coordinates in ``Y,X`` order,
+so the public stitching helpers default to ``xy_order="yx"`` and convert the
+arrays to plotting/global ``x,y`` internally.
+"""
 
 from __future__ import annotations
 
@@ -38,7 +49,7 @@ LEGACY_TILE_RE = re.compile(r"^(?:result)?block(?P<sample>\d+)_x(?P<yidx>\d+)_y(
 
 @dataclass(frozen=True)
 class TileLocation:
-    """Location of one tile in the source movie using zero-based coordinates."""
+    """Zero-based location of one tile clip in the source movie."""
 
     sample_index: int
     t_start: int
@@ -49,7 +60,12 @@ class TileLocation:
 
 @dataclass(frozen=True)
 class Track:
-    """One stitched query track in global movie coordinates."""
+    """One stitched query track in global movie coordinates.
+
+    ``points`` is a float array with columns ``frame,y,x,score``. ``h`` and
+    ``diffusion`` are the model's per-query constants for the track, and
+    ``track_id`` is assigned after deduplication/stitching.
+    """
 
     points: np.ndarray  # columns: frame, y, x, score
     h: float
@@ -106,7 +122,15 @@ def parse_tile_locations(
     count: int | None = None,
     stride: Sequence[int] | None = None,
 ) -> List[TileLocation]:
-    """Parse one location per clip stored in a tile/result file."""
+    """Parse one global location per temporal clip in a tile or result file.
+
+    Metadata attrs written by :func:`sptnet.segmentation.split.split_movie_file`
+    are preferred. If the path is an inference result, the result's
+    ``source_file`` attr is followed to the source tile. If that attr is stale,
+    the function also checks for a matching tile next to the ``inference_results``
+    directory. Filename parsing is used only as a fallback and requires
+    ``stride`` for order-based names such as ``movie_x002_y001.h5``.
+    """
     path = Path(path)
     attrs = read_hdf5_attrs(path)
     if {"sample_index", "y_start", "x_start"} <= set(attrs) and (
@@ -150,7 +174,12 @@ def parse_tile_locations(
 
 
 def parse_tile_location(path: os.PathLike, stride: Sequence[int] | None = None) -> TileLocation:
-    """Parse tile coordinates from attrs or the standard tile filename."""
+    """Parse one tile location from attrs or a supported filename.
+
+    This is the scalar version of :func:`parse_tile_locations`. Prefer
+    ``parse_tile_locations`` for modern spatial tile files because one spatial
+    tile can contain many temporal clips.
+    """
     path = Path(path)
     attrs = read_hdf5_attrs(path)
     if {"sample_index", "t_start", "y_start", "x_start"} <= set(attrs):
@@ -243,7 +272,25 @@ def stitch_movie_tiles(
     stride: Sequence[int] | None = None,
     overwrite: bool = True,
 ) -> np.ndarray:
-    """Average overlapping raw movie tiles back into one ``T,Y,X`` movie."""
+    """Average overlapping raw movie tiles back into one ``T,Y,X`` movie.
+
+    Parameters
+    ----------
+    tile_paths:
+        Tile files produced by the segmentation splitter.
+    output_path:
+        HDF5 file written with a ``timelapsedata`` dataset containing the
+        stitched movie.
+    dataset_names:
+        Dataset names to try in each tile file.
+    source_shape:
+        Optional crop shape in ``T,Y,X`` order. If omitted, the output covers
+        the full extent implied by the tiles.
+    stride:
+        Required only for legacy/order-based filenames that lack metadata attrs.
+    overwrite:
+        Whether to replace an existing output file.
+    """
     tile_paths = [Path(path) for path in tile_paths]
     if not tile_paths:
         raise ValueError("No tile paths were provided.")
@@ -297,7 +344,19 @@ def load_inference_arrays(
     tile_shape_yx: Sequence[int] = (64, 64),
     xy_order: str = "yx",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Load inference arrays as obj ``N,T,Q`` and xy ``N,T,Q,2`` in tile pixels."""
+    """Load one inference result as normalized arrays in tile-pixel coordinates.
+
+    Returns
+    -------
+    obj:
+        Detection probabilities with shape ``N,T,Q``.
+    xy:
+        Pixel coordinates with shape ``N,T,Q,2`` in ``x,y`` order after applying
+        ``xy_order`` and scaling normalized ``[-1,1]`` outputs into tile pixels.
+    h, diffusion:
+        Per-query constants with shape ``N,Q``. Diffusion is scaled by ``0.5``
+        to match the legacy visualization/stitching convention.
+    """
     data = _read_inference_data(path)
     return _format_inference_arrays(data, tile_shape_yx=tile_shape_yx, xy_order=xy_order)
 
@@ -401,7 +460,30 @@ def tracks_from_result_file(
     tile_shape_yx: Sequence[int] = (64, 64),
     xy_order: str = "yx",
 ) -> List[Track]:
-    """Convert one tile result file into global-coordinate tracks."""
+    """Convert one tile result file into global-coordinate tracks.
+
+    The function follows tile metadata to add ``t_start``, ``y_start``, and
+    ``x_start`` to per-tile predictions. Predictions falling in padded tile
+    regions are discarded using ``source_shape_tyx`` metadata when available.
+
+    Parameters
+    ----------
+    result_path:
+        One ``result_*.h5`` or ``result_*.mat`` file.
+    score_threshold:
+        Minimum object probability for a frame to be included.
+    min_track_len:
+        Minimum number of kept frames for a query to become a track.
+    max_step:
+        Optional maximum allowed frame-to-frame displacement in pixels.
+    stride:
+        Required only for metadata-free legacy/order-based filenames.
+    tile_shape_yx:
+        Tile size used to scale normalized model coordinates.
+    xy_order:
+        Coordinate order in ``estimation_xy``. Current SPTnet outputs are
+        ``"yx"``.
+    """
     result_path = Path(result_path)
     obj, xy, h, diffusion = load_inference_arrays(result_path, tile_shape_yx=tile_shape_yx, xy_order=xy_order)
     locations = parse_tile_locations(result_path, count=obj.shape[0], stride=stride)
@@ -538,7 +620,35 @@ def stitch_inference_results(
     tile_shape_yx: Sequence[int] = (64, 64),
     xy_order: str = "yx",
 ) -> List[Track]:
-    """Load per-tile inference outputs, transform to global coordinates, and deduplicate."""
+    """Stitch many per-tile inference result files into global tracks.
+
+    Parameters
+    ----------
+    result_paths:
+        Iterable of result files, or expanded paths from ``result_*.h5`` globs.
+    score_threshold, min_track_len, max_step:
+        Per-file filtering options forwarded to :func:`tracks_from_result_file`.
+    deduplicate:
+        If true, merge duplicate tracks created by overlapping spatial tiles.
+    dedup_overlap:
+        Minimum number of common frames before two tracks can be duplicates.
+    dedup_distance:
+        Median spatial distance threshold in pixels for duplicate merging.
+        ``3.0`` is a practical default for heavily overlapping edge-aligned
+        tiles; use smaller values for stricter behavior.
+    stride:
+        Required only for metadata-free legacy/order-based filenames.
+    tile_shape_yx:
+        Tile size used for coordinate scaling.
+    xy_order:
+        Coordinate order in ``estimation_xy``. Defaults to ``"yx"`` for current
+        SPTnet inference outputs.
+
+    Returns
+    -------
+    list[Track]
+        Tracks with global ``frame,y,x,score`` points and assigned ``track_id``.
+    """
     tracks: list[Track] = []
     for path in result_paths:
         tracks.extend(
@@ -558,7 +668,11 @@ def stitch_inference_results(
 
 
 def write_tracks_csv(tracks: Sequence[Track], output_path: os.PathLike) -> None:
-    """Write stitched tracks as one CSV row per detected point."""
+    """Write stitched tracks as one CSV row per detected point.
+
+    The CSV columns are ``track_id,frame,y,x,score,h,diffusion,query_index,
+    sample_index,tile_path``.
+    """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fields = ["track_id", "frame", "y", "x", "score", "h", "diffusion", "query_index", "sample_index", "tile_path"]

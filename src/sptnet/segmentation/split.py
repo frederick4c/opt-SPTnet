@@ -1,4 +1,16 @@
-"""Split large SPTnet movies into inference-sized tiles."""
+"""Split large movies into fixed-size SPTnet inference tiles.
+
+This module provides the Python replacement for the MATLAB segmentation
+pre-processing scripts. It reads ``.h5``/``.hdf5``, HDF5-backed or scipy-readable
+``.mat`` files, and ``.tif``/``.tiff`` stacks, converts the movie axes to
+``N,T,Y,X``, and writes HDF5 tile files containing ``timelapsedata``.
+
+The default tile size is ``30,64,64`` in ``T,Y,X`` order. Spatial and temporal
+edge tiles are aligned back onto the source movie by default, which prevents
+mostly padded tiles at the right, bottom, or final time edge. The resulting tile
+metadata records each tile's ``t_start``, ``y_start``, ``x_start``, source shape,
+and temporal block starts so stitched inference can recover global coordinates.
+"""
 
 from __future__ import annotations
 
@@ -25,7 +37,12 @@ TIFF_EXTENSIONS = {".tif", ".tiff"}
 
 @dataclass(frozen=True)
 class TileMetadata:
-    """Metadata for a split movie tile."""
+    """Metadata for one temporal clip within a spatial tile file.
+
+    A spatial tile file can contain many temporal clips stacked along the first
+    axis. The fields here describe one of those clips and are also mirrored into
+    the HDF5 file attributes where possible.
+    """
 
     source_path: Path
     output_path: Path
@@ -47,7 +64,12 @@ class TileMetadata:
 
 @dataclass(frozen=True)
 class SegmentationResult:
-    """Summary for one segmented input movie."""
+    """Summary returned by :func:`split_movie_file`.
+
+    Attributes include the input path, output directory, original/source axes,
+    all generated :class:`TileMetadata` records, and paths to the manifest CSV
+    and settings JSON written next to the tiles.
+    """
 
     input_path: Path
     output_dir: Path
@@ -95,7 +117,17 @@ def normalize_axes(axes: Optional[str], ndim: int) -> str:
 
 
 def to_ntyx(array: np.ndarray, axes: Optional[str] = None) -> tuple[np.ndarray, str]:
-    """Return movie data as ``N,T,Y,X`` plus the validated source axes."""
+    """Return movie data as ``N,T,Y,X`` plus the validated source axes.
+
+    Parameters
+    ----------
+    array:
+        Input movie as a 3D ``T,Y,X``-like stack or a 4D ``N,T,Y,X``-like batch.
+    axes:
+        Axis labels for ``array``. Use ``YXTN`` for legacy MATLAB arrays saved
+        as ``height,width,time,sample``. If omitted, 3D inputs are treated as
+        ``TYX`` and 4D inputs as ``NTYX``.
+    """
     axes = normalize_axes(axes, array.ndim)
     target = "NTYX"
     if array.ndim == 3:
@@ -109,7 +141,12 @@ def read_movie_array(
     input_path: os.PathLike,
     dataset_names: Sequence[str] = DEFAULT_DATASET_NAMES,
 ) -> tuple[np.ndarray, str, Tuple[int, ...]]:
-    """Read TIFF/HDF5/MATLAB movie data plus dataset name and original shape."""
+    """Read TIFF/HDF5/MATLAB movie data plus dataset name and original shape.
+
+    HDF5 and MATLAB files are searched for the first dataset name in
+    ``dataset_names``. TIFF stacks are returned under the synthetic dataset name
+    ``timelapsedata``.
+    """
     input_path = Path(input_path)
     if input_path.suffix.lower() in TIFF_EXTENSIONS:
         raw = np.asarray(tifffile.imread(input_path))
@@ -146,6 +183,12 @@ def _overlap_to_stride(block_shape: Tuple[int, int, int], overlap: Sequence[int]
 
 
 def _starts(length: int, block: int, stride: int, *, align_edges: bool = True) -> List[int]:
+    """Return tile starts for one axis.
+
+    When ``align_edges`` is true, the final start is ``length - block`` whenever
+    the source axis is larger than a block. This creates overlap near the edge
+    instead of padding a mostly empty final tile.
+    """
     if align_edges:
         if length <= block:
             return [0]
@@ -177,7 +220,13 @@ def tile_filename(
     *,
     include_sample: bool = False,
 ) -> str:
-    """Build a concise 1-based spatial tile filename."""
+    """Build a concise 1-based spatial tile filename.
+
+    Filenames encode spatial tile order, not absolute pixel coordinates:
+    ``movie_x001_y001.h5`` is the first spatial tile and
+    ``movie_x002_y001.h5`` is the second x tile. Absolute starts are stored in
+    HDF5 attrs and the manifest.
+    """
     ext = ext if ext.startswith(".") else f".{ext}"
     tile_part = f"x{x_index + 1:03d}_y{y_index + 1:03d}"
     if include_sample:
@@ -233,7 +282,56 @@ def split_movie_file(
     dtype: str | None = "float32",
     align_edges: bool = True,
 ) -> SegmentationResult:
-    """Split one movie into ``T,Y,X`` HDF5 tiles for SPTnet inference."""
+    """Split one movie into HDF5 tiles for SPTnet inference.
+
+    Parameters
+    ----------
+    input_path:
+        Source movie path. Supported extensions are ``.h5``, ``.hdf5``,
+        ``.mat``, ``.tif``, and ``.tiff``.
+    output_dir:
+        Directory where tile files, a manifest CSV, and a settings JSON are
+        written. Defaults to ``<input parent>/segmentation_tiles``.
+    dataset_names:
+        HDF5/MATLAB dataset names to try, in order. The defaults are
+        ``timelapsedata`` and ``ims``.
+    input_axes:
+        Source axis labels. Use ``YXTN`` for legacy MATLAB ``H,W,T,N`` arrays.
+        Native Python inputs normally need no override.
+    block_shape:
+        Tile shape in ``T,Y,X`` order. SPTnet models usually expect
+        ``(30, 64, 64)``.
+    overlap:
+        Overlap in ``T,Y,X`` order. The stride is ``block_shape - overlap``.
+    padding:
+        Padding mode used only when the source axis is smaller than the block,
+        or when ``align_edges=False`` creates a final padded tile.
+    output_ext:
+        Tile file extension. ``.h5`` is recommended; ``.mat`` writes
+        HDF5-backed MATLAB-compatible files.
+    output_dataset:
+        Dataset name inside each tile file. Inference expects ``timelapsedata``.
+    overwrite:
+        If false, existing tile files are kept and marked as skipped in the
+        manifest.
+    dtype:
+        Tile dtype. Pass ``"none"`` or ``None`` to preserve the source dtype.
+    align_edges:
+        If true, edge tile starts snap back onto the movie so edge tiles contain
+        a full real-image crop where possible. This is recommended for
+        non-multiple-of-64 movies because it avoids mostly padded edge tiles.
+
+    Returns
+    -------
+    SegmentationResult
+        Paths and metadata for the generated tile set.
+
+    Notes
+    -----
+    Each spatial tile is one HDF5 file. Long movies are split into temporal
+    clips within that same file, so ``timelapsedata`` has shape
+    ``num_temporal_clips,T,Y,X``.
+    """
     input_path = Path(input_path)
     output_dir = Path(output_dir) if output_dir is not None else input_path.parent / DEFAULT_OUTPUT_DIR_NAME
     block_shape = _as_shape3(block_shape, "block_shape")
@@ -342,7 +440,7 @@ def split_movie_files(
     output_dir: Optional[os.PathLike] = None,
     **kwargs,
 ) -> List[SegmentationResult]:
-    """Split multiple movie files."""
+    """Split multiple movie files with the same options as :func:`split_movie_file`."""
     return [split_movie_file(path, output_dir=output_dir, **kwargs) for path in input_paths]
 
 

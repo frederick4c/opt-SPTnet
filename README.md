@@ -54,7 +54,7 @@ Large `.h5`, `.hdf5`, `.mat`, and `.tif`/`.tiff` movies can be split into
 SPTnet-sized HDF5 tiles without MATLAB:
 
 ```bash
-sptnet-segment "raw/*.h5" --output-dir raw/tiles --block-shape 30 64 64 --overlap 0 16 16
+sptnet-segment "raw/*.h5" --output-dir raw/tiles --block-shape 30 64 64 --overlap 0 0 0 --dtype none
 ```
 
 Tile files are named by 1-based spatial tile order, for example
@@ -69,15 +69,58 @@ default; legacy MATLAB arrays saved as `H,W,T,N` can be split with
 `--input-axes YXTN`. TIFF inputs are written as unlabeled HDF5 tile files
 containing `timelapsedata` only.
 
+For a real movie that is not a clean multiple of 64 pixels, edge alignment is
+usually preferable to padding. For example, an `89x80` movie split into `64x64`
+tiles uses `x` starts `0,16` and `y` starts `0,25`, producing four overlapping
+tiles with full image context instead of thin padded edge strips. Disable this
+only for reproducing old stride-only splits:
+
+```bash
+sptnet-segment RealData/full_realdata.h5 \
+  --output-dir RealData/realdata_tiles \
+  --block-shape 30 64 64 \
+  --overlap 0 0 0 \
+  --dtype none
+```
+
+Run inference on the resulting tile files:
+
+```bash
+sptnet-inference \
+  --model-path Trained_models/full_run/trained_model \
+  --data "RealData/realdata_tiles/full_realdata_x*.h5" \
+  --batch-size 8
+```
+
+On CSD3, the provided SLURM script can be pointed at the tiles:
+
+```bash
+SPT_INFER_DATA="./RealData/realdata_tiles/full_realdata_x*.h5" \
+sbatch slurm/inference_sptnet_csd3.slurm
+```
+
 After running inference on the tiles, stitch per-tile predictions back into
 global tracks and remove repeated tracks from overlapping tiles:
 
 ```bash
-sptnet-stitch "runs/example/inference_results/result_movie_*.h5" --output stitched_tracks.csv
+sptnet-stitch \
+  "RealData/realdata_tiles/inference_results/result_full_realdata_*.h5" \
+  --output RealData/stitched_tracks.csv \
+  --score-threshold 0.90 \
+  --min-track-len 5 \
+  --dedup-distance 3.0
 ```
 
-The stitcher also accepts legacy names like `resultblock001_x2_y3_t4.mat` when
-you provide `--stride T Y X`.
+The stitcher discards predictions in padded tile regions and merges duplicate
+tracks from overlapping tiles. `--dedup-distance 3.0` is a good default for
+edge-aligned overlapping tiles; lower values are stricter and higher values are
+more aggressive. The stitcher also accepts legacy names like
+`resultblock001_x2_y3_t4.mat` when you provide `--stride T Y X`. Current SPTnet
+inference outputs store coordinates as `Y,X`; use `--xy-order xy` only for older
+files that used `X,Y`.
+
+The generated Sphinx docs include a longer walkthrough in
+`docs/segmentation.rst`.
 
 The CRLB matrix used by training can be regenerated without MATLAB:
 

@@ -19,6 +19,10 @@ API Reference
    sptnet.inference.cli
    sptnet.inference.predict
    sptnet.inference.results_io
+   sptnet.segmentation
+   sptnet.segmentation.split
+   sptnet.segmentation.stitch
+   sptnet.segmentation.io
    sptnet.training
    sptnet.training.cli
    sptnet.training.losses

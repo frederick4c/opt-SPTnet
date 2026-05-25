@@ -1,4 +1,16 @@
-"""Python segmentation and stitching utilities for SPTnet movies."""
+"""Python segmentation and stitching utilities for large SPTnet movies.
+
+The public API covers three common steps:
+
+``split_movie_file`` / ``split_movie_files``
+    Convert large ``.h5``, ``.mat``, or TIFF movies into fixed-size HDF5 tiles
+    suitable for SPTnet inference.
+``stitch_inference_results``
+    Convert per-tile inference outputs back into global tracks and merge
+    duplicates from overlapping tiles.
+``stitch_movie_tiles``
+    Reconstruct raw movie tiles for validation or debugging.
+"""
 
 from sptnet.segmentation.split import (
     DEFAULT_BLOCK_SHAPE,

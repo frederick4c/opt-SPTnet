@@ -9,6 +9,7 @@ utilities, and inference helpers used in single-particle tracking workflows.
    :caption: Contents
 
    training_data_generation
+   segmentation
    api/index
 
 API Reference
