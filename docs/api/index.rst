@@ -15,6 +15,7 @@ API Reference
    sptnet.data.mat_dataset
    sptnet.data.inference_dataset
    sptnet.data.loaders
+   sptnet.data.trackmate
    sptnet.inference
    sptnet.inference.cli
    sptnet.inference.predict
@@ -25,6 +26,7 @@ API Reference
    sptnet.segmentation.io
    sptnet.training
    sptnet.training.cli
+   sptnet.training.crlb
    sptnet.training.losses
    sptnet.training.trainer
    sptnet.training.data_generator

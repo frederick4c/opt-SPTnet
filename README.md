@@ -168,6 +168,8 @@ HTML(ani.to_jshtml())
 ## Documentation
 
 API documentation is built with Sphinx from the docstrings in `src/sptnet`.
+Read the Docs is configured via `.readthedocs.yaml` and installs the lightweight
+documentation requirements from `docs/requirements.txt`.
 
 ```bash
 python -m pip install -e ".[docs]"

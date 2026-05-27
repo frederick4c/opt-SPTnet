@@ -24,6 +24,7 @@ extensions = [
 ]
 
 autosummary_generate = True
+autoclass_content = "both"
 autodoc_typehints = "description"
 autodoc_member_order = "bysource"
 napoleon_google_docstring = False

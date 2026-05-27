@@ -21,7 +21,7 @@ dependencies = [
 
 [project.optional-dependencies]
 docs = [
-    "sphinx",
+    "sphinx>=4",
 ]
 notebook = [
     "ipykernel",

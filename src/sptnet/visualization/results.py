@@ -87,12 +87,14 @@ def set_inference_dirs(test_data_dir=None, results_dir=None):
 
     This is useful in notebooks, where you can configure once:
 
+    .. code-block:: python
+
         set_inference_dirs(
             test_data_dir='TestData/dense_test',
             results_dir='Trained_models/dense_test/inference_results',
         )
 
-    and then call `show_mat_result_by_index(...)` without repeatedly passing
+    and then call ``show_mat_result_by_index(...)`` without repeatedly passing
     glob patterns.
     """
     global TEST_DATA_DIR, RESULTS_DIR
@@ -404,12 +406,12 @@ def load_inference_results(results_path):
     files, including legacy MATLAB v5 files with a misleading extension, are
     read with scipy.io.loadmat.
 
-    Returns (all N-indexed, ready to slice by video index)
+    Returns
     -------
-    obj_est : (N, T, Q)       — detection confidence per frame per query
-    xy_est  : (N, T, Q, 2)   — predicted pixel coords in [0, 64]
-    est_H   : (N, Q)          — Hurst exponent
-    est_C   : (N, Q)          — diffusion coefficient (scaled by 0.5)
+    tuple of numpy.ndarray
+        ``(obj_est, xy_est, est_H, est_C)`` arrays, all N-indexed and ready
+        to slice by video index. Shapes are ``(N, T, Q)``, ``(N, T, Q, 2)``,
+        ``(N, Q)``, and ``(N, Q)`` respectively.
     """
     try:
         with h5py.File(results_path, "r") as handle:
@@ -938,6 +940,9 @@ def show_video(test_data_path, results_path,
     Load data and return a FuncAnimation for one video.
 
     Call from a notebook like:
+
+    .. code-block:: python
+
         from sptnet.visualization import show_video
         from IPython.display import HTML
 
@@ -950,22 +955,27 @@ def show_video(test_data_path, results_path,
     ----------
     test_data_path : str
         Path to source video:
-        - `.mat` training/test file (with optional GT), or
-        - `.tif/.tiff` movie stack (no GT overlay).
-    results_path   : str  — path to SPTnet inference output `.h5` or `.mat` file
-    video_idx      : int  — which video (0-based)
-    threshold      : float — detection confidence threshold
-    min_track_len  : int  — min frames active to display a predicted track
-    interval       : int  — ms between frames in the animation
+        - ``.mat`` training/test file (with optional GT), or
+        - ``.tif``/``.tiff`` movie stack (no GT overlay).
+    results_path : str
+        Path to SPTnet inference output ``.h5`` or ``.mat`` file.
+    video_idx : int
+        Which video to display, using 0-based indexing.
+    threshold : float
+        Detection confidence threshold.
+    min_track_len : int
+        Minimum active frames required to display a predicted track.
+    interval : int
+        Milliseconds between animation frames.
     gt_data_path   : str|None
-        Optional GT `.mat` when `test_data_path` is TIFF.
+        Optional GT ``.mat`` when ``test_data_path`` is TIFF.
     gt_video_idx   : int|None
-        Which sample in `gt_data_path` to use. If None and TIFF filename ends
-        with `_<number>.tif`, that number is used.
+        Which sample in ``gt_data_path`` to use. If None and TIFF filename ends
+        with ``_<number>.tif``, that number is used.
     swap_gt_xy_for_tiff : bool
         Manual override for TIFF + external GT mode when auto-matching is off.
     auto_match_gt_video : bool
-        For TIFF input with external GT MAT and unspecified `gt_video_idx`,
+        For TIFF input with external GT MAT and unspecified ``gt_video_idx``,
         auto-match the TIFF clip to the best GT video and GT transform
         (offset/swap) by trajectory intensity score.
 
