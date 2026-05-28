@@ -11,7 +11,7 @@ ROOT = os.path.abspath("..")
 SRC = os.path.join(ROOT, "src")
 sys.path.insert(0, SRC)
 
-project = "SPTnet"
+project = "opt-SPTnet"
 author = "SPTnet contributors"
 copyright = f"{date.today().year}, {author}"
 release = "0.1.0"
@@ -46,6 +46,7 @@ autodoc_mock_imports = [
 templates_path = ["_templates"]
 exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 
+html_title = "opt-SPTnet Documentation"
 html_theme = "sphinx_rtd_theme"
 html_theme_options = {
     "collapse_navigation": False,

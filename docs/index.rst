@@ -1,5 +1,5 @@
-SPTnet Documentation
-====================
+opt-SPTnet Documentation
+========================
 
 SPTnet is a refactored package for model components, datasets, training
 utilities, and inference helpers used in single-particle tracking workflows.
