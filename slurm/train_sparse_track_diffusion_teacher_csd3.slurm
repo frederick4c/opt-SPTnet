@@ -29,18 +29,20 @@ fi
 source "$TEACHER_ENV"
 
 # ---------------------------------------------------------------------
-# Run from the refactored repo where sbatch was submitted.
+# Run from this repo where sbatch was submitted.
 # Expected layout:
 #   ./experiments/
-#   ../SPTnet/TrainData/*.mat
+#   ./TrainData/*.h5
 # ---------------------------------------------------------------------
 
 cd "$SLURM_SUBMIT_DIR"
 
 export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
+export PYTHONPATH="$SLURM_SUBMIT_DIR/src:${PYTHONPATH:-}"
+export PYTHONUNBUFFERED=1
 ulimit -n 65536
 
-export TEACHER_SPARSE_DATA="${TEACHER_SPARSE_DATA:-../SPTnet/TrainData/*.mat}"
+export TEACHER_SPARSE_DATA="${TEACHER_SPARSE_DATA:-./TrainData/*.h5}"
 export TEACHER_OUT_DIR="${TEACHER_OUT_DIR:-./experiments/csd3_sparse_teacher}"
 export TEACHER_EPOCHS="${TEACHER_EPOCHS:-80}"
 export TEACHER_BATCH_SIZE="${TEACHER_BATCH_SIZE:-512}"
@@ -85,6 +87,12 @@ PY
 
 if [[ ! -d experiments ]]; then
     echo "ERROR: ./experiments was not found. Submit from the refactored repo root."
+    exit 1
+fi
+
+if [[ ! -f pyproject.toml || ! -d src/sptnet ]]; then
+    echo "ERROR: pyproject.toml and src/sptnet were not found in $(pwd)."
+    echo "Submit the job from this repo root."
     exit 1
 fi
 

@@ -22,14 +22,21 @@ source "${SPT_VENV:-$HOME/envs/SPTnet}/bin/activate"
 
 export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
 export PYTHONPATH="$SLURM_SUBMIT_DIR/src:${PYTHONPATH:-}"
+export PYTHONUNBUFFERED=1
 
 echo "Submit directory: $SLURM_SUBMIT_DIR"
 echo "Working directory: $(pwd)"
 echo "Python: $(which python)"
 
-if [[ ! -f "src/sptnet/training/data_generator.py" ]]; then
-    echo "ERROR: src/sptnet/training/data_generator.py was not found in $(pwd)"
-    echo "Submit the job from the refactored SPTnet repo root."
+if [[ ! -f pyproject.toml || ! -d src/sptnet ]]; then
+    echo "ERROR: pyproject.toml and src/sptnet were not found in $(pwd)."
+    echo "Submit the job from this repo root."
+    exit 1
+fi
+
+if ! command -v sptnet-generate-training-data >/dev/null 2>&1; then
+    echo "ERROR: sptnet-generate-training-data was not found in PATH."
+    echo "Install this repo in the active environment with: python -m pip install -e ."
     exit 1
 fi
 
@@ -54,7 +61,31 @@ echo "Files: $SPT_NUM_FILES, videos/file: $SPT_VIDEOS_PER_FILE"
 echo "File start: ${SPT_FILE_START:-1}"
 echo "Seed: ${SPT_SEED:-shuffle}"
 echo "Output extension: $SPT_OUTPUT_EXTENSION"
+echo "Particles/video: ${SPT_P_NUM_MIN:-1}-${SPT_P_NUM_MAX:-10}"
+echo "Diffusion range: ${SPT_D_MIN:-0.001}-${SPT_D_MAX:-0.5}"
 
-python -u -m sptnet.training.data_generator
+generator_args=(
+    --output-dir "$SPT_OUTPUT_DIR"
+    --output-extension "$SPT_OUTPUT_EXTENSION"
+    --num-files "$SPT_NUM_FILES"
+    --videos-per-file "$SPT_VIDEOS_PER_FILE"
+    --file-start "${SPT_FILE_START:-1}"
+)
+
+if [[ -n "${SPT_SEED:-}" ]]; then generator_args+=(--seed "$SPT_SEED"); fi
+if [[ -n "${SPT_FRAMES:-}" ]]; then generator_args+=(--frames "$SPT_FRAMES"); fi
+if [[ -n "${SPT_IMAGE_DIMS:-}" ]]; then generator_args+=(--image-dims "$SPT_IMAGE_DIMS"); fi
+if [[ -n "${SPT_P_NUM_MIN:-}" ]]; then generator_args+=(--p-num-min "$SPT_P_NUM_MIN"); fi
+if [[ -n "${SPT_P_NUM_MAX:-}" ]]; then generator_args+=(--p-num-max "$SPT_P_NUM_MAX"); fi
+if [[ -n "${SPT_PHOTON_MIN:-}" ]]; then generator_args+=(--photon-min "$SPT_PHOTON_MIN"); fi
+if [[ -n "${SPT_PHOTON_MAX:-}" ]]; then generator_args+=(--photon-max "$SPT_PHOTON_MAX"); fi
+if [[ -n "${SPT_BG_MIN:-}" ]]; then generator_args+=(--bg-min "$SPT_BG_MIN"); fi
+if [[ -n "${SPT_BG_MAX:-}" ]]; then generator_args+=(--bg-max "$SPT_BG_MAX"); fi
+if [[ -n "${SPT_PERLIN_BG_MIN:-}" ]]; then generator_args+=(--perlin-bg-min "$SPT_PERLIN_BG_MIN"); fi
+if [[ -n "${SPT_PERLIN_BG_MAX:-}" ]]; then generator_args+=(--perlin-bg-max "$SPT_PERLIN_BG_MAX"); fi
+if [[ "${SPT_MOTION_BLUR:-0}" == "1" || "${SPT_MOTION_BLUR:-}" == "true" ]]; then generator_args+=(--motion-blur); fi
+if [[ "${SPT_NO_PROGRESS:-0}" == "1" || "${SPT_NO_PROGRESS:-}" == "true" ]]; then generator_args+=(--no-progress); fi
+
+sptnet-generate-training-data "${generator_args[@]}"
 
 echo "Generation job completed."

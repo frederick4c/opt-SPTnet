@@ -21,12 +21,13 @@ set -euo pipefail
 module purge
 module load rhel8/default-amp
 module load python/3.11.0-icl
-source "${SPT_VENV:-$HOME/envs/SPTnet}/bin/activate"
 
 cd "$SLURM_SUBMIT_DIR"
+source "${SPT_VENV:-$HOME/envs/SPTnet}/bin/activate"
 
 export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
 export PYTHONPATH="$SLURM_SUBMIT_DIR/src:${PYTHONPATH:-}"
+export PYTHONUNBUFFERED=1
 export SPT_NUM_WORKERS="${SPT_NUM_WORKERS:-2}"
 
 # With many HDF5 files, h5py/PyTorch can keep many file handles open.
@@ -50,10 +51,24 @@ export SPT_MAX_DC="${SPT_MAX_DC:-0.5}"
 export SPT_MAX_EPOCHS="${SPT_MAX_EPOCHS:-0}"
 export SPT_GPUS="${SPT_GPUS:-1}"
 export SPT_CRLB_PATH="${SPT_CRLB_PATH:-}"
+export SPT_VAL_EVERY="${SPT_VAL_EVERY:-}"
+export SPT_PATIENCE="${SPT_PATIENCE:-}"
+export SPT_GRAD_CLIP="${SPT_GRAD_CLIP:-}"
+export SPT_MAX_TRAIN_BATCHES="${SPT_MAX_TRAIN_BATCHES:-}"
+export SPT_MAX_VAL_BATCHES="${SPT_MAX_VAL_BATCHES:-}"
+export SPT_RESUME="${SPT_RESUME:-}"
+export SPT_RESUME_OPTIMIZER="${SPT_RESUME_OPTIMIZER:-}"
+export SPT_RESUME_HISTORY="${SPT_RESUME_HISTORY:-}"
 
-if [[ ! -f "src/sptnet/training/cli.py" ]]; then
-    echo "ERROR: src/sptnet/training/cli.py was not found in $(pwd)"
-    echo "Submit the job from the refactored SPTnet repo root."
+if [[ ! -f pyproject.toml || ! -d src/sptnet ]]; then
+    echo "ERROR: pyproject.toml and src/sptnet were not found in $(pwd)."
+    echo "Submit the job from this repo root."
+    exit 1
+fi
+
+if ! command -v sptnet-train >/dev/null 2>&1; then
+    echo "ERROR: sptnet-train was not found in PATH."
+    echo "Install this repo in the active environment with: python -m pip install -e ."
     exit 1
 fi
 
@@ -92,7 +107,7 @@ echo "Starting SPTnet benchmark on CSD3 Ampere node..."
 echo "Job ID: ${SLURM_JOB_ID:-unknown}"
 echo "Host: $(hostname)"
 echo "Submit directory: $SLURM_SUBMIT_DIR"
-echo "Training module: sptnet.training.cli"
+echo "Training command: sptnet-train"
 echo "Training data pattern: $SPT_TRAIN_DATA"
 echo "Max files: $SPT_MAX_FILES"
 echo "Matched training files: $match_count"
@@ -122,7 +137,17 @@ if [[ -n "$SPT_CRLB_PATH" ]]; then
     crlb_args=(--crlb-path "$SPT_CRLB_PATH")
 fi
 
-/usr/bin/time -v python -u -m sptnet.training.cli \
+optional_args=()
+if [[ -n "$SPT_VAL_EVERY" ]]; then optional_args+=(--val-every "$SPT_VAL_EVERY"); fi
+if [[ -n "$SPT_PATIENCE" ]]; then optional_args+=(--patience "$SPT_PATIENCE"); fi
+if [[ -n "$SPT_GRAD_CLIP" ]]; then optional_args+=(--grad-clip "$SPT_GRAD_CLIP"); fi
+if [[ -n "$SPT_MAX_TRAIN_BATCHES" ]]; then optional_args+=(--max-train-batches "$SPT_MAX_TRAIN_BATCHES"); fi
+if [[ -n "$SPT_MAX_VAL_BATCHES" ]]; then optional_args+=(--max-val-batches "$SPT_MAX_VAL_BATCHES"); fi
+if [[ -n "$SPT_RESUME" ]]; then optional_args+=(--resume "$SPT_RESUME"); fi
+if [[ -n "$SPT_RESUME_OPTIMIZER" ]]; then optional_args+=(--resume-optimizer "$SPT_RESUME_OPTIMIZER"); fi
+if [[ -n "$SPT_RESUME_HISTORY" ]]; then optional_args+=(--resume-history "$SPT_RESUME_HISTORY"); fi
+
+/usr/bin/time -v sptnet-train \
     --model-dir "$SPT_MODEL_DIR" \
     --data "${train_data_files[@]}" \
     --gpus "$SPT_GPUS" \
@@ -131,6 +156,7 @@ fi
     --query "$SPT_QUERY" \
     --max_dc "$SPT_MAX_DC" \
     --max-epochs "$SPT_MAX_EPOCHS" \
+    "${optional_args[@]}" \
     "${crlb_args[@]}" 2>&1 | tee "$benchmark_log"
 train_status=${PIPESTATUS[0]}
 set -e
@@ -152,7 +178,7 @@ fi
 {
     echo "run_name=$SPT_RUN_NAME"
     echo "job_id=${SLURM_JOB_ID:-unknown}"
-    echo "train_module=sptnet.training.cli"
+    echo "train_command=sptnet-train"
     echo "train_data=$SPT_TRAIN_DATA"
     echo "max_files=$SPT_MAX_FILES"
     echo "matched_training_files=$match_count"

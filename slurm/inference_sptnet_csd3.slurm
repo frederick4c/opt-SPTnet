@@ -32,8 +32,6 @@ module load rhel8/default-amp
 
 # Load the standard Python 3 module (adjust if CSD3 uses a specific python/3.x module)
 module load python/3.11.0-icl
-log "Activating virtual environment..."
-source "${SPT_VENV:-$HOME/envs/SPTnet}/bin/activate"
 
 # ---------------------------------------------------------------------
 # Run the application
@@ -42,19 +40,28 @@ source "${SPT_VENV:-$HOME/envs/SPTnet}/bin/activate"
 # Go to the directory where the job was submitted from
 cd "$SLURM_SUBMIT_DIR"
 log "Changed to submit dir: $(pwd)"
+log "Activating virtual environment..."
+source "${SPT_VENV:-$HOME/envs/SPTnet}/bin/activate"
 
 # Prevent standard python multiprocessing from taking all CPU cores
 export OMP_NUM_THREADS="$SLURM_CPUS_PER_TASK"
 export PYTHONPATH="$SLURM_SUBMIT_DIR/src:${PYTHONPATH:-}"
+export PYTHONUNBUFFERED=1
 
 log "Diagnostic info for virtual environment:"
 which python
 python -c "import sys; print('python=', sys.executable); print('sys.path[0:5]=', sys.path[:5])"
 python -c "import torch; print('torch.cuda.is_available=', torch.cuda.is_available())"
 
-if [[ ! -f "src/sptnet/inference/cli.py" ]]; then
-    echo "ERROR: src/sptnet/inference/cli.py was not found in $(pwd)"
-    echo "Submit the job from the refactored SPTnet repo root."
+if [[ ! -f pyproject.toml || ! -d src/sptnet ]]; then
+    echo "ERROR: pyproject.toml and src/sptnet were not found in $(pwd)."
+    echo "Submit the job from this repo root."
+    exit 1
+fi
+
+if ! command -v sptnet-inference >/dev/null 2>&1; then
+    echo "ERROR: sptnet-inference was not found in PATH."
+    echo "Install this repo in the active environment with: python -m pip install -e ."
     exit 1
 fi
 
@@ -69,10 +76,10 @@ log "Inference data pattern: $SPT_INFER_DATA"
 log "Batch size: $SPT_INFER_BATCH_SIZE"
 log "HDF5 clip index: $SPT_HDF5_CLIP_INDEX"
 
-python -u -m sptnet.inference.cli \
-    -m "$SPT_MODEL_PATH" \
-    -d "$SPT_INFER_DATA" \
-    -b "$SPT_INFER_BATCH_SIZE" \
+sptnet-inference \
+    --model-path "$SPT_MODEL_PATH" \
+    --data "$SPT_INFER_DATA" \
+    --batch-size "$SPT_INFER_BATCH_SIZE" \
     --hdf5-clip-index "$SPT_HDF5_CLIP_INDEX"
 
 log "Inference job completed."
