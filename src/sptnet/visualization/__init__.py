@@ -18,6 +18,7 @@ from sptnet.visualization.results import (
     show_tiff_result_by_index,
     show_video,
     stitched_tracks_to_animation_arrays,
+    tracks_from_csv,
     trackmate_positions_to_animation_gt,
 )
 
@@ -39,5 +40,6 @@ __all__ = [
     "show_tiff_result_by_index",
     "show_video",
     "stitched_tracks_to_animation_arrays",
+    "tracks_from_csv",
     "trackmate_positions_to_animation_gt",
 ]

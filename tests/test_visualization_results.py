@@ -9,6 +9,7 @@ from sptnet.visualization.results import (
     build_stitched_tracks_animation,
     find_tiff_result_pairs,
     load_trackmate_ground_truth_for_stitched_results,
+    tracks_from_csv,
 )
 
 
@@ -77,3 +78,26 @@ def test_load_trackmate_ground_truth_for_stitched_results_reads_optional_dataset
     loaded = load_trackmate_ground_truth_for_stitched_results(path)
 
     np.testing.assert_array_equal(loaded, gt)
+
+
+def test_tracks_from_csv_loads_stitched_tracks(tmp_path):
+    path = tmp_path / "tracks.csv"
+    path.write_text(
+        "\n".join(
+            [
+                "track_id,frame,y,x,score,h,diffusion,query_index,sample_index,tile_path",
+                "2,1,4.0,5.0,0.91,0.5,0.1,7,0,tile_a.h5",
+                "2,0,3.0,4.0,0.90,0.5,0.1,7,0,tile_a.h5",
+                "5,3,8.0,9.0,0.95,0.6,0.2,8,1,tile_b.h5",
+            ]
+        )
+        + "\n"
+    )
+
+    tracks = tracks_from_csv(path)
+
+    assert [track.track_id for track in tracks] == [2, 5]
+    np.testing.assert_array_equal(tracks[0].points[:, 0], np.array([0, 1], dtype=np.float32))
+    np.testing.assert_allclose(tracks[0].points[1], np.array([1, 4, 5, 0.91], dtype=np.float32))
+    assert tracks[0].query_index == 7
+    assert tracks[1].sample_index == 1

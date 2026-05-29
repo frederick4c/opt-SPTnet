@@ -275,6 +275,95 @@ def test_stitch_inference_results_recovers_stale_source_file_from_sibling_tile(t
     np.testing.assert_allclose(tracks[0].points[:, 2], 6.0)
 
 
+def test_stitch_inference_results_recovers_missing_tile_from_manifest(tmp_path):
+    tile_dir = tmp_path / "tiles"
+    result_dir = tmp_path / "results"
+    tile_dir.mkdir()
+    result_dir.mkdir()
+    tile_name = "movie_x002_y001.h5"
+    manifest_path = tile_dir / "movie__segmentation_manifest.csv"
+    fields = [
+        "output_path",
+        "source_path",
+        "dataset_name",
+        "sample_index",
+        "tile_index",
+        "t_index",
+        "y_index",
+        "x_index",
+        "t_start",
+        "y_start",
+        "x_start",
+        "block_t",
+        "block_y",
+        "block_x",
+        "stride_t",
+        "stride_y",
+        "stride_x",
+        "source_t",
+        "source_y",
+        "source_x",
+        "padded_t",
+        "padded_y",
+        "padded_x",
+        "skipped",
+    ]
+    with manifest_path.open("w", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields)
+        writer.writeheader()
+        for t_index, t_start in enumerate([0, 3]):
+            writer.writerow(
+                {
+                    "output_path": tile_dir / tile_name,
+                    "source_path": tmp_path / "movie.tif",
+                    "dataset_name": "timelapsedata",
+                    "sample_index": 0,
+                    "tile_index": t_index,
+                    "t_index": t_index,
+                    "y_index": 0,
+                    "x_index": 1,
+                    "t_start": t_start,
+                    "y_start": 0,
+                    "x_start": 2,
+                    "block_t": 3,
+                    "block_y": 4,
+                    "block_x": 4,
+                    "stride_t": 3,
+                    "stride_y": 4,
+                    "stride_x": 4,
+                    "source_t": 6,
+                    "source_y": 4,
+                    "source_x": 6,
+                    "padded_t": 6,
+                    "padded_y": 4,
+                    "padded_x": 6,
+                    "skipped": False,
+                }
+            )
+
+    result_path = result_dir / f"result_{tile_name}"
+    records = {
+        "obj_estimation": [np.ones((1, 1, 3), dtype=np.float32), np.ones((1, 1, 3), dtype=np.float32)],
+        "estimation_xy": [np.zeros((1, 1, 3, 2), dtype=np.float32), np.zeros((1, 1, 3, 2), dtype=np.float32)],
+        "estimation_H": [np.array([[0.5]], dtype=np.float32), np.array([[0.6]], dtype=np.float32)],
+        "estimation_C": [np.array([[0.25]], dtype=np.float32), np.array([[0.35]], dtype=np.float32)],
+    }
+    write_inference_result_file(result_path, stack_result_arrays(records), source_file=tile_dir / tile_name)
+
+    tracks = stitch_inference_results(
+        [result_path],
+        score_threshold=0.9,
+        min_track_len=3,
+        deduplicate=False,
+        tile_shape_yx=(4, 4),
+    )
+
+    assert len(tracks) == 2
+    np.testing.assert_array_equal(tracks[0].points[:, 0], np.array([0, 1, 2], dtype=np.float32))
+    np.testing.assert_array_equal(tracks[1].points[:, 0], np.array([3, 4, 5], dtype=np.float32))
+    np.testing.assert_allclose(tracks[0].points[:, 2], 4.0)
+
+
 def test_stitch_inference_results_uses_yx_coordinate_order_by_default(tmp_path):
     tile_path = tmp_path / "movie_x001_y001.h5"
     movie = np.zeros((1, 3, 64, 64), dtype=np.float32)

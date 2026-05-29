@@ -37,6 +37,7 @@ tests/test_conversion.py
 tests/test_crlb.py
 tests/test_data.py
 tests/test_data_generator.py
+tests/test_docs_api_coverage.py
 tests/test_inference.py
 tests/test_inference_results_io.py
 tests/test_models.py

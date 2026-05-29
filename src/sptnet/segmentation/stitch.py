@@ -117,6 +117,58 @@ def _candidate_source_file_for_result(path: os.PathLike) -> Path | None:
     return None
 
 
+def _candidate_manifest_paths(path: os.PathLike, source_file: os.PathLike | None = None) -> list[Path]:
+    """Return likely segmentation manifests for a result or source tile path."""
+    path = Path(path)
+    roots = [path.parent, path.parent.parent]
+    if source_file is not None:
+        source_path = Path(source_file)
+        roots.extend([source_path.parent, source_path.parent.parent])
+
+    manifests: list[Path] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        manifests.extend(sorted(root.glob("*__segmentation_manifest.csv")))
+    return sorted(set(manifests))
+
+
+def _manifest_rows_for_tile(path: os.PathLike, source_file: os.PathLike | None = None) -> list[dict[str, str]]:
+    """Find manifest rows for the tile corresponding to ``path``."""
+    path = Path(path)
+    stem = path.stem
+    if stem.startswith("result_"):
+        stem = stem[len("result_") :]
+    tile_name = f"{stem}{path.suffix}"
+
+    for manifest in _candidate_manifest_paths(path, source_file=source_file):
+        with manifest.open(newline="") as handle:
+            rows = [
+                row
+                for row in csv.DictReader(handle)
+                if Path(row["output_path"]).name == tile_name
+            ]
+        if rows:
+            rows.sort(key=lambda row: int(row["t_index"]))
+            return rows
+    return []
+
+
+def _locations_from_manifest_rows(rows: list[dict[str, str]], count: int | None = None) -> list[TileLocation]:
+    if count is not None and len(rows) != count:
+        raise ValueError(f"Manifest has {len(rows)} rows for tile but result contains {count} clip(s).")
+    return [
+        TileLocation(
+            sample_index=int(row["sample_index"]) + index,
+            t_start=int(row["t_start"]),
+            y_start=int(row["y_start"]),
+            x_start=int(row["x_start"]),
+            source_stem=Path(row["source_path"]).stem,
+        )
+        for index, row in enumerate(rows)
+    ]
+
+
 def parse_tile_locations(
     path: os.PathLike,
     count: int | None = None,
@@ -162,6 +214,9 @@ def parse_tile_locations(
                 return parse_tile_locations(source_file, count=count, stride=stride)
             except ValueError:
                 pass
+        manifest_rows = _manifest_rows_for_tile(path, source_file=source_file)
+        if manifest_rows:
+            return _locations_from_manifest_rows(manifest_rows, count=count)
 
     sibling_source = _candidate_source_file_for_result(path)
     if sibling_source is not None:
@@ -169,6 +224,10 @@ def parse_tile_locations(
             return parse_tile_locations(sibling_source, count=count, stride=stride)
         except ValueError:
             pass
+
+    manifest_rows = _manifest_rows_for_tile(path)
+    if manifest_rows:
+        return _locations_from_manifest_rows(manifest_rows, count=count)
 
     return [parse_tile_location(path, stride=stride)]
 
@@ -199,6 +258,9 @@ def parse_tile_location(path: os.PathLike, stride: Sequence[int] | None = None) 
                 return parse_tile_location(source_file, stride=stride)
             except ValueError:
                 pass
+        manifest_rows = _manifest_rows_for_tile(path, source_file=source_file)
+        if manifest_rows:
+            return _locations_from_manifest_rows(manifest_rows)[0]
 
     sibling_source = _candidate_source_file_for_result(path)
     if sibling_source is not None:
@@ -206,6 +268,10 @@ def parse_tile_location(path: os.PathLike, stride: Sequence[int] | None = None) 
             return parse_tile_location(sibling_source, stride=stride)
         except ValueError:
             pass
+
+    manifest_rows = _manifest_rows_for_tile(path)
+    if manifest_rows:
+        return _locations_from_manifest_rows(manifest_rows)[0]
 
     stem = path.stem
     if stem.startswith("result_"):
@@ -427,10 +493,18 @@ def _result_source_shape_tyx(path: os.PathLike) -> tuple[int, int, int] | None:
         if not source_path.exists():
             source_path = _candidate_source_file_for_result(path) or source_path
     if not source_path.exists():
-        return None
+        manifest_rows = _manifest_rows_for_tile(path, source_file=source_path)
+        if not manifest_rows:
+            return None
+        row = manifest_rows[0]
+        return (int(row["source_t"]), int(row["source_y"]), int(row["source_x"]))
     source_attrs = read_hdf5_attrs(source_path)
     if "source_shape_tyx" not in source_attrs:
-        return None
+        manifest_rows = _manifest_rows_for_tile(path, source_file=source_path)
+        if not manifest_rows:
+            return None
+        row = manifest_rows[0]
+        return (int(row["source_t"]), int(row["source_y"]), int(row["source_x"]))
     return tuple(int(value) for value in np.asarray(source_attrs["source_shape_tyx"]).tolist())
 
 
@@ -577,6 +651,32 @@ def _merge_duplicate_tracks(primary: Track, duplicate: Track) -> Track:
     )
 
 
+def _track_index_keys(
+    track: Track,
+    *,
+    frame_bin_size: int,
+    spatial_bin_size: float,
+) -> set[tuple[int, int, int]]:
+    """Coarse index keys used to avoid all-pairs duplicate checks."""
+    if track.length == 0:
+        return set()
+    frames = track.points[:, 0]
+    y = track.points[:, 1]
+    x = track.points[:, 2]
+    frame_bins = range(
+        int(np.floor(np.min(frames) / frame_bin_size)),
+        int(np.floor(np.max(frames) / frame_bin_size)) + 1,
+    )
+    y_bin = int(np.floor(float(np.median(y)) / spatial_bin_size))
+    x_bin = int(np.floor(float(np.median(x)) / spatial_bin_size))
+    return {
+        (frame_bin, y_bin + dy, x_bin + dx)
+        for frame_bin in frame_bins
+        for dy in (-1, 0, 1)
+        for dx in (-1, 0, 1)
+    }
+
+
 def deduplicate_tracks(
     tracks: Sequence[Track],
     *,
@@ -591,19 +691,41 @@ def deduplicate_tracks(
     """
     ranked = sorted(tracks, key=lambda tr: (tr.mean_score, tr.length), reverse=True)
     kept: list[Track] = []
+    index: dict[tuple[int, int, int], set[int]] = {}
+    frame_bin_size = 30
+    spatial_bin_size = max(float(distance_threshold) * 4.0, 8.0)
+
+    def add_to_index(track_index: int) -> None:
+        for key in _track_index_keys(
+            kept[track_index],
+            frame_bin_size=frame_bin_size,
+            spatial_bin_size=spatial_bin_size,
+        ):
+            index.setdefault(key, set()).add(track_index)
+
     for track in ranked:
+        candidate_indices: set[int] = set()
+        for key in _track_index_keys(
+            track,
+            frame_bin_size=frame_bin_size,
+            spatial_bin_size=spatial_bin_size,
+        ):
+            candidate_indices.update(index.get(key, set()))
         duplicate_index = next(
             (
                 index
-                for index, existing in enumerate(kept)
+                for index in candidate_indices
+                for existing in (kept[index],)
                 if _is_duplicate(track, existing, min_overlap, distance_threshold)
             ),
             None,
         )
         if duplicate_index is not None:
             kept[duplicate_index] = _merge_duplicate_tracks(kept[duplicate_index], track)
+            add_to_index(duplicate_index)
         else:
             kept.append(track)
+            add_to_index(len(kept) - 1)
     return [replace(track, track_id=index) for index, track in enumerate(kept)]
 
 

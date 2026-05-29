@@ -35,6 +35,7 @@ Recommended helper for CSD3 MAT-first-clip inference outputs::
 """
 
 import os
+import csv
 import glob
 import re
 import tempfile
@@ -499,6 +500,56 @@ def load_trackmate_ground_truth_for_stitched_results(movie_path):
         return np.asarray(handle["trackmate_positions"])
 
 
+def tracks_from_csv(csv_path):
+    """Load stitched-track CSV output as segmentation ``Track`` objects.
+
+    Parameters
+    ----------
+    csv_path:
+        CSV written by :func:`sptnet.segmentation.stitch.write_tracks_csv`.
+
+    Returns
+    -------
+    list[sptnet.segmentation.stitch.Track]
+        Tracks with ``points`` columns ``frame,y,x,score``. The returned tracks
+        can be passed directly to :func:`build_stitched_tracks_animation`.
+    """
+    csv_path = Path(csv_path)
+    rows_by_track: dict[int, list[dict[str, str]]] = {}
+    with csv_path.open(newline="") as handle:
+        for row in csv.DictReader(handle):
+            rows_by_track.setdefault(int(row["track_id"]), []).append(row)
+
+    tracks = []
+    for track_id, rows in sorted(rows_by_track.items()):
+        rows.sort(key=lambda row: int(float(row["frame"])))
+        points = np.asarray(
+            [
+                [
+                    float(row["frame"]),
+                    float(row["y"]),
+                    float(row["x"]),
+                    float(row["score"]),
+                ]
+                for row in rows
+            ],
+            dtype=np.float32,
+        )
+        first = rows[0]
+        tracks.append(
+            segmentation_stitch.Track(
+                points=points,
+                h=float(first["h"]),
+                diffusion=float(first["diffusion"]),
+                query_index=int(float(first["query_index"])),
+                sample_index=int(float(first["sample_index"])),
+                tile_path=Path(first["tile_path"]),
+                track_id=int(track_id),
+            )
+        )
+    return tracks
+
+
 def stitched_tracks_to_animation_arrays(
     tracks,
     *,
@@ -597,6 +648,74 @@ def trackmate_positions_to_animation_gt(
     return gt_pos_list, [None] * len(gt_pos_list), [None] * len(gt_pos_list)
 
 
+def _draw_prediction_overlay(
+    ax,
+    *,
+    x_history,
+    y_history,
+    current_x,
+    current_y,
+    color,
+    box_size,
+    h_value,
+    diffusion_value,
+    show_constants,
+):
+    """Draw one prediction using the shared visual style for all result views."""
+    artists = []
+    half_box = box_size / 2.0
+
+    line, = ax.plot(
+        x_history,
+        y_history,
+        '-',
+        color=color,
+        linewidth=1.5,
+        zorder=5,
+    )
+    artists.append(line)
+
+    dot = ax.scatter(
+        current_x,
+        current_y,
+        s=16,
+        c=[color],
+        marker='o',
+        edgecolors='none',
+        zorder=7,
+    )
+    artists.append(dot)
+
+    rect = patches.Rectangle(
+        (current_x - half_box, current_y - half_box),
+        box_size,
+        box_size,
+        linewidth=2,
+        edgecolor=color,
+        facecolor='none',
+        zorder=6,
+    )
+    ax.add_patch(rect)
+    artists.append(rect)
+
+    if show_constants:
+        text = ax.text(
+            current_x + half_box + 1.0,
+            current_y - half_box,
+            f'H={h_value:.2g}\nD={diffusion_value:.2g}',
+            color=color,
+            fontsize=7,
+            fontweight='bold',
+            ha='left',
+            va='top',
+            linespacing=0.9,
+            zorder=7,
+        )
+        artists.append(text)
+
+    return artists
+
+
 def build_stitched_tracks_animation(
     video_frames,
     tracks,
@@ -631,6 +750,9 @@ def build_stitched_tracks_animation(
     frames = video_frames[start_frame:frame_stop]
     if frames.size == 0:
         raise ValueError("No frames selected for display.")
+
+    if max_tracks is None:
+        max_tracks = max_labels
 
     obj_est, xy_est, est_H, est_C = stitched_tracks_to_animation_arrays(
         tracks,
@@ -893,34 +1015,25 @@ def build_animation(video_frames, gt_pos_list, gt_h_list, gt_c_list,
             color = cmap_vals[qi]
             active_frames = frmlist[predict[:, qi]]
 
-            # Trajectory line
             tx = xy_est[active_frames, qi, 0]
             ty = xy_est[active_frames, qi, 1]
-            ln, = ax.plot(tx, ty, '-o', color=color, markersize=2,
-                          linewidth=1.5, markerfacecolor=color, zorder=5)
-            dynamic_artists.append(ln)
-
-            # Current position circle
             cx, cy = xy_est[frame, qi, 0], xy_est[frame, qi, 1]
-            sc = ax.scatter(cx, cy, s=100, facecolors='none',
-                            edgecolors=color, linewidths=2, zorder=6)
-            dynamic_artists.append(sc)
-
-            # Bounding box
-            rect = patches.Rectangle((cx - d, cy - d), cropsize, cropsize,
-                                      linewidth=2, edgecolor=color,
-                                      facecolor='none', zorder=6)
-            ax.add_patch(rect)
-            dynamic_artists.append(rect)
-
-            if show_predicted_constants:
-                h_val = est_H[qi] if qi < est_H.size else 0
-                c_val = est_C[qi] if qi < est_C.size else 0
-                t1 = ax.text(cx - 0.5*d, cy - 0.5*d, f'H={h_val:.4f},',
-                             color=color, fontsize=7, fontweight='bold', zorder=7)
-                t2 = ax.text(cx + 1.5*d, cy - 0.5*d, f'D={c_val:.4f}',
-                             color=color, fontsize=7, fontweight='bold', zorder=7)
-                dynamic_artists.extend([t1, t2])
+            h_val = est_H[qi] if qi < est_H.size else 0
+            c_val = est_C[qi] if qi < est_C.size else 0
+            dynamic_artists.extend(
+                _draw_prediction_overlay(
+                    ax,
+                    x_history=tx,
+                    y_history=ty,
+                    current_x=cx,
+                    current_y=cy,
+                    color=color,
+                    box_size=cropsize,
+                    h_value=h_val,
+                    diffusion_value=c_val,
+                    show_constants=show_predicted_constants,
+                )
+            )
 
         return [im] + dynamic_artists
 
