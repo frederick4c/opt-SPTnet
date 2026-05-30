@@ -43,11 +43,13 @@ export SPT_VIDEOS_PER_FILE="${SPT_VIDEOS_PER_FILE:-100}"
 export SPT_OUTPUT_EXTENSION="${SPT_OUTPUT_EXTENSION:-.h5}"
 export SPT_OUTPUT_ROOT="${SPT_OUTPUT_ROOT:-$SLURM_SUBMIT_DIR/diff_evals}"
 export SPT_BASE_SEED="${SPT_BASE_SEED:-1889}"
+export SPT_CONDITIONS="${SPT_CONDITIONS:-all}"
+export SPT_LINK_CONDITIONS="${SPT_LINK_CONDITIONS:-$SPT_CONDITIONS}"
 
 generated_dir="$SPT_OUTPUT_ROOT/generated"
 mean_sweep_dir="$SPT_OUTPUT_ROOT/mean_sweep"
 range_sweep_dir="$SPT_OUTPUT_ROOT/range_sweep"
-manifest="$SPT_OUTPUT_ROOT/manifest.csv"
+manifest="${SPT_MANIFEST:-$SPT_OUTPUT_ROOT/manifest.csv}"
 
 mkdir -p "$generated_dir" "$mean_sweep_dir" "$range_sweep_dir"
 
@@ -58,9 +60,37 @@ echo "Videos/file: $SPT_VIDEOS_PER_FILE"
 echo "Particles/video: 10"
 echo "Output extension: $SPT_OUTPUT_EXTENSION"
 echo "Base seed: $SPT_BASE_SEED"
+echo "Generate conditions: $SPT_CONDITIONS"
+echo "Link/manifest conditions: $SPT_LINK_CONDITIONS"
 echo "Python: $(which python)"
 
 printf "experiment,condition,path,d_min,d_max,target_mean,half_width,seed,num_files,videos_per_file,particles_per_video\n" > "$manifest"
+
+condition_in_list() {
+    local condition_list="$1"
+    local condition="$2"
+
+    if [[ "$condition_list" == "all" ]]; then
+        return 0
+    fi
+
+    case ":$condition_list:" in
+        *:"$condition":*) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+generation_condition_selected() {
+    local condition="$1"
+
+    condition_in_list "$SPT_CONDITIONS" "$condition"
+}
+
+link_condition_selected() {
+    local condition="$1"
+
+    condition_in_list "$SPT_LINK_CONDITIONS" "$condition"
+}
 
 generate_condition() {
     local experiment="$1"
@@ -71,6 +101,11 @@ generate_condition() {
     local half_width="$6"
     local seed="$7"
     local output_dir="$generated_dir/$condition"
+
+    if ! generation_condition_selected "$condition"; then
+        echo "Skipping $condition; not listed in SPT_CONDITIONS."
+        return 0
+    fi
 
     mkdir -p "$output_dir"
 
@@ -99,6 +134,10 @@ link_condition() {
     local condition="$2"
     local link_path="$experiment_dir/$condition"
 
+    if ! link_condition_selected "$condition"; then
+        return 0
+    fi
+
     mkdir -p "$experiment_dir"
     ln -sfn "../generated/$condition" "$link_path"
 }
@@ -112,6 +151,10 @@ record_condition_use() {
     local half_width="$6"
     local seed="$7"
     local path="$8"
+
+    if ! link_condition_selected "$condition"; then
+        return 0
+    fi
 
     printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,10\n" \
         "$experiment" "$condition" "$path" "$d_min" "$d_max" \
