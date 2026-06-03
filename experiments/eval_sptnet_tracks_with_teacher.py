@@ -2,9 +2,10 @@
 """Score saved SPTnet inference tracks with the frozen diffusion teacher.
 
 This is a diagnostic bridge between the old SPTnet outputs and the
-diffusion-first idea. It loads `result_*.mat` files, keeps sufficiently confident
-predicted tracks, feeds their coordinate sequences to the teacher, and compares
-the teacher-derived diffusion with SPTnet's own `estimation_C` head.
+diffusion-first idea. It loads saved `result_*.mat` or `result_*.h5` files,
+keeps sufficiently confident predicted tracks, feeds their coordinate sequences
+to the teacher, and compares the teacher-derived diffusion with SPTnet's own
+`estimation_C` head.
 """
 
 import argparse
@@ -14,6 +15,7 @@ import sys
 from pathlib import Path
 from typing import Dict, List
 
+import h5py
 import numpy as np
 import scipy.io as sio
 import torch
@@ -36,7 +38,7 @@ def parse_args():
         description="Run the frozen track-diffusion teacher on saved SPTnet inference tracks."
     )
     parser.add_argument("--checkpoint", required=True, help="Teacher checkpoint.")
-    parser.add_argument("--results", nargs="+", required=True, help="SPTnet result .mat files or glob patterns.")
+    parser.add_argument("--results", nargs="+", required=True, help="SPTnet result .mat/.h5 files or glob patterns.")
     parser.add_argument("--output-csv", default="experiments/sptnet_tracks_teacher_scores.csv")
     parser.add_argument("--obj-threshold", type=float, default=0.5)
     parser.add_argument("--min-valid-frames", type=int, default=3)
@@ -69,6 +71,33 @@ def choose_device(name: str) -> torch.device:
     if name == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     return torch.device(name)
+
+
+def load_result_file(path: str) -> Dict[str, np.ndarray]:
+    """Load an SPTnet result file written as MATLAB or native HDF5."""
+
+    ext = Path(path).suffix.lower()
+    if ext == ".mat":
+        return sio.loadmat(path)
+    if ext in {".h5", ".hdf5"}:
+        with h5py.File(path, "r") as handle:
+            return {key: np.asarray(handle[key]) for key in handle.keys()}
+    raise ValueError(f"Unsupported result file extension for {path!r}; expected .mat/.h5/.hdf5")
+
+
+def condition_from_path(path: str) -> str:
+    """Infer the diffusion-eval condition directory from a result path."""
+
+    parts = Path(path).parts
+    if "generated" in parts:
+        idx = parts.index("generated")
+        if idx + 1 < len(parts):
+            return parts[idx + 1]
+    if "inference_results" in parts:
+        idx = parts.index("inference_results")
+        if idx >= 1:
+            return parts[idx - 1]
+    return ""
 
 
 def normalize_result_arrays(mat: Dict[str, np.ndarray]):
@@ -107,9 +136,10 @@ def normalize_result_arrays(mat: Dict[str, np.ndarray]):
 def collect_tracks(path: str, obj_threshold: float, min_valid_frames: int, max_diff: float, network_c_normalized: bool):
     """Extract confident predicted tracks from one saved SPTnet result file."""
 
-    mat = sio.loadmat(path)
+    mat = load_result_file(path)
     xy, obj, net_c = normalize_result_arrays(mat)
     records: List[Dict[str, object]] = []
+    condition = condition_from_path(path)
 
     for sample_idx in range(xy.shape[0]):
         for query_idx in range(xy.shape[1]):
@@ -127,6 +157,7 @@ def collect_tracks(path: str, obj_threshold: float, min_valid_frames: int, max_d
                     "diffusion": np.float32(0.0),
                     "hurst": np.float32(0.0),
                     "source": path,
+                    "condition": condition,
                     "video_index": sample_idx,
                     "track_index": query_idx,
                     "network_D": c_value,
@@ -202,6 +233,7 @@ def main():
                 rows.append(
                     {
                         "source": item["source"],
+                        "condition": item["condition"],
                         "sample_index": item["video_index"],
                         "query_index": item["track_index"],
                         "valid_frames": item["valid_frames"],
@@ -221,6 +253,7 @@ def main():
             fh,
             fieldnames=[
                 "source",
+                "condition",
                 "sample_index",
                 "query_index",
                 "valid_frames",

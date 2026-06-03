@@ -100,7 +100,30 @@ def parse_args():
     p.add_argument('--max-val-batches', type=int, default=0, help="maximum validation batches per validation pass; 0 means all")
     p.add_argument('--resume', type=str, default='', help="path to model weights to resume from")
     p.add_argument('--resume-optimizer', type=str, default='', help="path to optimizer state; defaults to <resume>optimizer_stat")
+    p.add_argument('--no-resume-optimizer', action='store_true', help="when resuming weights, always use a fresh optimizer")
     p.add_argument('--resume-history', type=str, default='', help="path to existing loss_history.csv; defaults to output model dir CSV")
+    p.add_argument('--match-h-weight', type=float, default=0.5, help="Hurst weight used only for Hungarian matching")
+    p.add_argument('--match-d-weight', type=float, default=0.5, help="Diffusion weight used only for Hungarian matching")
+    p.add_argument('--loss-h-weight', type=float, default=0.5, help="Hurst weight used in the final selected-track loss")
+    p.add_argument('--loss-d-weight', type=float, default=0.5, help="Diffusion weight used in the final selected-track loss")
+    p.add_argument(
+        '--diffusion-loss',
+        choices=['absolute', 'relative'],
+        default='absolute',
+        help="Diffusion scalar loss mode. 'absolute' preserves the current normalized L1 loss.",
+    )
+    p.add_argument(
+        '--relative-d-eps',
+        type=float,
+        default=0.01,
+        help="Minimum normalized target diffusion used by --diffusion-loss relative.",
+    )
+    p.add_argument(
+        '--objectness-loss',
+        choices=['bce', 'bce_logits'],
+        default='bce',
+        help="Objectness loss mode. 'bce' preserves sigmoid outputs; 'bce_logits' trains raw logits.",
+    )
     p.add_argument(
         '--crlb-path',
         type=str,
@@ -121,6 +144,13 @@ def main():
     full_path = os.path.join(args.model_dir, model_name)
     print(f"Model will be saved to: {os.path.abspath(full_path)}")
     print(f"Random seed set to: {RANDOM_SEED}")
+    print(
+        "Ablation loss settings: "
+        f"match_h={args.match_h_weight}, match_d={args.match_d_weight}, "
+        f"loss_h={args.loss_h_weight}, loss_d={args.loss_d_weight}, "
+        f"diffusion_loss={args.diffusion_loss}, relative_d_eps={args.relative_d_eps}, "
+        f"objectness_loss={args.objectness_loss}"
+    )
     
     # Verify write permissions immediately
     try:
@@ -241,6 +271,13 @@ def main():
             diff_max=spt.diff_max,
             num_frames=spt.number_of_frame,
             crlb_matrix=CRLB_matrix,
+            match_h_weight=args.match_h_weight,
+            match_d_weight=args.match_d_weight,
+            loss_h_weight=args.loss_h_weight,
+            loss_d_weight=args.loss_d_weight,
+            diffusion_loss=args.diffusion_loss,
+            relative_d_eps=args.relative_d_eps,
+            objectness_loss=args.objectness_loss,
         )
         if not torch.isfinite(t_loss):
             raise RuntimeError(
@@ -296,6 +333,13 @@ def main():
                 diff_max=spt.diff_max,
                 num_frames=spt.number_of_frame,
                 crlb_matrix=CRLB_matrix,
+                match_h_weight=args.match_h_weight,
+                match_d_weight=args.match_d_weight,
+                loss_h_weight=args.loss_h_weight,
+                loss_d_weight=args.loss_d_weight,
+                diffusion_loss=args.diffusion_loss,
+                relative_d_eps=args.relative_d_eps,
+                objectness_loss=args.objectness_loss,
             )
             v_loss, cl_ls, coor_ls, h_ls, diff_ls, bg_ls = float(v_loss), float(cl_ls), float(coor_ls), float(h_ls), float(diff_ls), float(bg_ls)
         return v_loss, cl_ls, coor_ls, h_ls, diff_ls, bg_ls
@@ -307,7 +351,8 @@ def main():
     transformer = Transformer(d_model=256,dropout=0,nhead=8,dim_feedforward=1024,num_encoder_layers=6,num_decoder_layers=6,normalize_before=False)
     print("Initializing model...")
     model = SPTnet(num_classes=1, num_queries=spt.num_queries, num_frames=spt.number_of_frame, spatial_t=transformer,
-                       temporal_t=transformer3d, input_channel=512).to(device)
+                       temporal_t=transformer3d, input_channel=512,
+                       return_objectness_logits=args.objectness_loss == 'bce_logits').to(device)
     # torch.autograd.set_detect_anomaly(True)  # Disabled for performance; re-enable only for debugging
     scaler = torch.amp.GradScaler('cuda', enabled=use_amp)  # AMP gradient scaler for mixed-precision training
 
@@ -365,7 +410,9 @@ def main():
             )
 
         optimizer_path = args.resume_optimizer or (args.resume + 'optimizer_stat')
-        if optimizer_path and os.path.exists(optimizer_path):
+        if args.no_resume_optimizer:
+            print("Skipping optimizer resume because --no-resume-optimizer was set.")
+        elif optimizer_path and os.path.exists(optimizer_path):
             print(f"Resuming optimizer state from: {optimizer_path}")
             optimizer.load_state_dict(torch.load(optimizer_path, map_location=device))
             for group in optimizer.param_groups:

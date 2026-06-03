@@ -35,9 +35,20 @@ class SPTnet(nn.Module):
         Retained for compatibility with the original constructor.
     """
 
-    def __init__(self, num_classes, num_queries, num_frames, spatial_t, temporal_t, input_channel):
+    def __init__(
+        self,
+        num_classes,
+        num_queries,
+        num_frames,
+        spatial_t,
+        temporal_t,
+        input_channel,
+        *,
+        return_objectness_logits=False,
+    ):
         super().__init__()
         self.input_channel = input_channel
+        self.return_objectness_logits = return_objectness_logits
         self.backbone = BackBone()
         self.conv_temp = nn.Conv1d(1, num_frames, kernel_size=1, stride=1, padding=0)
 
@@ -94,7 +105,9 @@ class SPTnet(nn.Module):
         center_pred = torch.tanh(self.fc1_1(center_pred))
         center_pred = center_pred.permute(0, 2, 1, 3)
 
-        class_logits = torch.sigmoid(self.fc2(deco_comb)).squeeze(-1)
+        class_logits = self.fc2(deco_comb).squeeze(-1)
+        if not self.return_objectness_logits:
+            class_logits = torch.sigmoid(class_logits)
         class_logits = class_logits.permute(0, 2, 1)
 
         xf_hd = F.relu(self.fc3(hs1.squeeze(0)))

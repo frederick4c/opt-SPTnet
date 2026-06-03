@@ -22,11 +22,14 @@ docs/api/generated/
 CRLB_H_D_frame.mat
 experiments/spatial_diffusion_visual/spatial_diffusion_visual.tif
 
+# report
+report/
 
 # notes
 *.md
 !README.md
 .codexrules
+notebooks/
 
 # data
 testdata*
@@ -35,3 +38,4 @@ testdata*
 *.pt
 csd3_sparse_teacher/
 RealData/
+diff_evals/

@@ -20,6 +20,17 @@ def hungarian_matched_loss(
     diff_max,
     num_frames,
     crlb_matrix,
+    match_class_weight=1.0,
+    match_coord_weight=2.0,
+    match_h_weight=0.5,
+    match_d_weight=0.5,
+    loss_class_weight=1.0,
+    loss_coord_weight=2.0,
+    loss_h_weight=0.5,
+    loss_d_weight=0.5,
+    diffusion_loss="absolute",
+    relative_d_eps=0.01,
+    objectness_loss="bce",
 ):
     """Compute SPTnet's Hungarian-matched multi-object training loss.
 
@@ -50,12 +61,30 @@ def hungarian_matched_loss(
         Number of movie frames used to index the CRLB weighting matrix.
     crlb_matrix:
         Precomputed CRLB matrix used to weight Hurst/diffusion losses.
+    match_*_weight:
+        Weights used only for Hungarian assignment.
+    loss_*_weight:
+        Weights used for the final selected-track training loss.
+    diffusion_loss:
+        Either `"absolute"` for normalized absolute error or `"relative"`
+        for normalized relative error against the target diffusion.
+    relative_d_eps:
+        Lower bound for relative diffusion targets, in normalized units.
+    objectness_loss:
+        Either `"bce"` for probability inputs or `"bce_logits"` for raw logits.
     """
     num_batches, num_queries_from_pred, num_frames_from_pred = pred_classes.shape
     if num_queries_from_pred != num_queries:
         raise ValueError(f"Expected {num_queries} queries, got {num_queries_from_pred}.")
+    if diffusion_loss not in {"absolute", "relative"}:
+        raise ValueError(f"Unknown diffusion_loss {diffusion_loss!r}; expected 'absolute' or 'relative'.")
+    if objectness_loss not in {"bce", "bce_logits"}:
+        raise ValueError(f"Unknown objectness_loss {objectness_loss!r}; expected 'bce' or 'bce_logits'.")
 
-    pred_classes = torch.nan_to_num(pred_classes, nan=0.5, posinf=1.0, neginf=0.0).clamp(1e-6, 1 - 1e-6)
+    if objectness_loss == "bce_logits":
+        pred_classes = torch.nan_to_num(pred_classes, nan=0.0, posinf=20.0, neginf=-20.0)
+    else:
+        pred_classes = torch.nan_to_num(pred_classes, nan=0.5, posinf=1.0, neginf=0.0).clamp(1e-6, 1 - 1e-6)
     pred_positions = torch.nan_to_num(pred_positions, nan=0.0, posinf=1.0, neginf=-1.0).clamp(-1.0, 1.0)
     pred_h = torch.nan_to_num(pred_h, nan=0.5, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
     pred_d = torch.nan_to_num(pred_d, nan=0.5, posinf=1.0, neginf=0.0).clamp(0.0, 1.0)
@@ -83,13 +112,18 @@ def hungarian_matched_loss(
     criterion_mae = torch.nn.L1Loss(reduction="none").to(pred_classes.device)
     pdist = torch.nn.PairwiseDistance(p=2)
 
+    def class_loss_fn(pred, target, *, reduction):
+        if objectness_loss == "bce_logits":
+            return F.binary_cross_entropy_with_logits(pred, target, reduction=reduction)
+        return F.binary_cross_entropy(pred, target, reduction=reduction)
+
     for b in range(num_batches):
         track_flag = sum(gt_classes[b, :]) >= 2
         num_tracks = int(sum(track_flag))
         if num_tracks != 0:
             gt_pos_track = gt_positions[b, :, :, :][track_flag, :, :].unsqueeze(0).repeat(num_queries, 1, 1, 1)
             gt_classes_pm = gt_classes[b, :][:, track_flag].permute(1, 0)
-            class_loss_matrix = F.binary_cross_entropy(
+            class_loss_matrix = class_loss_fn(
                 pred_classes[b, :, :].view(num_queries, 1, num_frames_from_pred).repeat(1, num_tracks, 1),
                 gt_classes_pm.view(1, num_tracks, num_frames_from_pred).repeat(num_queries, 1, 1),
                 reduction="none",
@@ -132,27 +166,39 @@ def hungarian_matched_loss(
             d_loss_matrix = criterion_mae(
                 pred_d[b].view(-1, 1).repeat(1, gt_d_nonzero.shape[-1]),
                 gt_d_nonzero.view(1, -1).repeat(pred_d.shape[-1], 1),
-            ) / crlbweight_d.repeat(pred_h.shape[-1], 1)
-            cost_matrix_all_pf = (
-                cost_matrix_class_pf
-                + 2 * pos_loss_matrix_allfrm_pf
-                + 0.5 * h_loss_matrix
-                + 0.5 * d_loss_matrix
-            ).t()
-            cost_matrix_safe = torch.nan_to_num(cost_matrix_all_pf, nan=1e4, posinf=1e4, neginf=1e4)
+            )
+            if diffusion_loss == "relative":
+                d_loss_matrix = d_loss_matrix / gt_d_nonzero.clamp_min(relative_d_eps).view(1, -1)
+            d_loss_matrix = d_loss_matrix / crlbweight_d.repeat(pred_h.shape[-1], 1)
 
-            row_indices, col_indices = linear_sum_assignment(cost_matrix_safe.cpu().detach().numpy())
-            cost_matrix_all_pf = cost_matrix_safe[row_indices, col_indices].sum()
+            match_matrix_all_pf = (
+                match_class_weight * cost_matrix_class_pf
+                + match_coord_weight * pos_loss_matrix_allfrm_pf
+                + match_h_weight * h_loss_matrix
+                + match_d_weight * d_loss_matrix
+            ).t()
+            final_loss_matrix_all_pf = (
+                loss_class_weight * cost_matrix_class_pf
+                + loss_coord_weight * pos_loss_matrix_allfrm_pf
+                + loss_h_weight * h_loss_matrix
+                + loss_d_weight * d_loss_matrix
+            ).t()
+            match_matrix_safe = torch.nan_to_num(match_matrix_all_pf, nan=1e4, posinf=1e4, neginf=1e4)
+
+            row_indices, col_indices = linear_sum_assignment(match_matrix_safe.cpu().detach().numpy())
+            final_loss_matrix_safe = torch.nan_to_num(final_loss_matrix_all_pf, nan=1e4, posinf=1e4, neginf=1e4)
+            matched_track_loss = final_loss_matrix_safe[row_indices, col_indices].sum()
 
             total_class = (
-                torch.nan_to_num(cost_matrix_class_pf.t(), nan=0.0, posinf=1e4, neginf=0.0)
+                loss_class_weight
+                * torch.nan_to_num(cost_matrix_class_pf.t(), nan=0.0, posinf=1e4, neginf=0.0)
                 .cpu()
                 .detach()
                 .numpy()[row_indices, col_indices]
                 .sum()
             ) / num_tracks
             total_coordi = (
-                2
+                loss_coord_weight
                 * torch.nan_to_num(pos_loss_matrix_allfrm_pf.t(), nan=0.0, posinf=1e4, neginf=0.0)
                 .cpu()
                 .detach()
@@ -160,7 +206,7 @@ def hungarian_matched_loss(
                 .sum()
             ) / num_tracks
             total_hurst = (
-                0.5
+                loss_h_weight
                 * torch.nan_to_num(h_loss_matrix.t(), nan=0.0, posinf=1e4, neginf=0.0)
                 .cpu()
                 .detach()
@@ -168,7 +214,7 @@ def hungarian_matched_loss(
                 .sum()
             ) / num_tracks
             total_diffusion = (
-                0.5
+                loss_d_weight
                 * torch.nan_to_num(d_loss_matrix.t(), nan=0.0, posinf=1e4, neginf=0.0)
                 .cpu()
                 .detach()
@@ -177,17 +223,23 @@ def hungarian_matched_loss(
             ) / num_tracks
 
             non_obj_pre = pred_classes[b, :, :][np.setdiff1d(fullindex, col_indices), :]
-            non_obj_pre = torch.nan_to_num(non_obj_pre, nan=0.5, posinf=1.0, neginf=0.0).clamp(1e-6, 1 - 1e-6)
-            non_obj_loss = F.binary_cross_entropy(non_obj_pre, torch.zeros_like(non_obj_pre), reduction="mean")
-            loss_pv = (cost_matrix_all_pf / num_tracks) + non_obj_loss
+            if objectness_loss == "bce_logits":
+                non_obj_pre = torch.nan_to_num(non_obj_pre, nan=0.0, posinf=20.0, neginf=-20.0)
+            else:
+                non_obj_pre = torch.nan_to_num(non_obj_pre, nan=0.5, posinf=1.0, neginf=0.0).clamp(1e-6, 1 - 1e-6)
+            non_obj_loss = class_loss_fn(non_obj_pre, torch.zeros_like(non_obj_pre), reduction="mean")
+            loss_pv = (matched_track_loss / num_tracks) + non_obj_loss
             loss_pb += loss_pv
             if torch.isnan(loss_pv):
                 print("Tracks", num_tracks)
                 continue
         else:
             non_obj_pre = pred_classes[b, :, :]
-            non_obj_pre = torch.nan_to_num(non_obj_pre, nan=0.5, posinf=1.0, neginf=0.0).clamp(1e-6, 1 - 1e-6)
-            non_obj_loss = F.binary_cross_entropy(non_obj_pre, torch.zeros_like(non_obj_pre), reduction="mean")
+            if objectness_loss == "bce_logits":
+                non_obj_pre = torch.nan_to_num(non_obj_pre, nan=0.0, posinf=20.0, neginf=-20.0)
+            else:
+                non_obj_pre = torch.nan_to_num(non_obj_pre, nan=0.5, posinf=1.0, neginf=0.0).clamp(1e-6, 1 - 1e-6)
+            non_obj_loss = class_loss_fn(non_obj_pre, torch.zeros_like(non_obj_pre), reduction="mean")
             loss_pb += non_obj_loss
             total_class = 0
             total_coordi = 0
