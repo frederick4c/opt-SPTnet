@@ -31,12 +31,12 @@ ulimit -n 65536
 export SPT_TRAIN_DATA="${SPT_TRAIN_DATA:-./diff_bins/*/*.h5}"
 export SPT_PRETRAINED="${SPT_PRETRAINED:-./perf_exp/trained_model}"
 export SPT_OUTPUT_BASE="${SPT_OUTPUT_BASE:-./perf_exp}"
-export SPT_MAX_EPOCHS="${SPT_MAX_EPOCHS:-10}"
+export SPT_MAX_EPOCHS="${SPT_MAX_EPOCHS:-20}"
 export SPT_LEARNING_RATE="${SPT_LEARNING_RATE:-1e-5}"
 export SPT_BATCH_SIZE="${SPT_BATCH_SIZE:-16}"
 export SPT_QUERY="${SPT_QUERY:-20}"
 export SPT_MAX_DC="${SPT_MAX_DC:-0.5}"
-export SPT_PATIENCE="${SPT_PATIENCE:-5}"
+export SPT_PATIENCE="${SPT_PATIENCE:-20}"
 export SPT_VAL_EVERY="${SPT_VAL_EVERY:-1}"
 export SPT_GPUS="${SPT_GPUS:-1}"
 export SPT_GRAD_CLIP="${SPT_GRAD_CLIP:-1.0}"
@@ -45,6 +45,7 @@ export SPT_MAX_TRAIN_BATCHES="${SPT_MAX_TRAIN_BATCHES:-}"
 export SPT_MAX_VAL_BATCHES="${SPT_MAX_VAL_BATCHES:-}"
 export SPT_RELATIVE_D_EPS="${SPT_RELATIVE_D_EPS:-0.01}"
 export SPT_HD_UP_WEIGHT="${SPT_HD_UP_WEIGHT:-1.0}"
+export SPT_ALLOW_EXISTING_OUTPUT="${SPT_ALLOW_EXISTING_OUTPUT:-0}"
 
 if [[ ! -f pyproject.toml || ! -d src/sptnet ]]; then
     echo "ERROR: pyproject.toml and src/sptnet were not found in $(pwd)."
@@ -63,13 +64,7 @@ if [[ ! -f "$SPT_PRETRAINED" ]]; then
     exit 1
 fi
 
-matched_files=$(python - "$SPT_TRAIN_DATA" <<'PY'
-import glob
-import sys
-
-print(len(glob.glob(sys.argv[1])))
-PY
-)
+matched_files=$(python -c 'import glob, sys; print(len(glob.glob(sys.argv[1])))' "$SPT_TRAIN_DATA")
 
 if [[ "$matched_files" -eq 0 ]]; then
     echo "ERROR: training data pattern matched no files: $SPT_TRAIN_DATA"
@@ -119,6 +114,18 @@ case "$task_id" in
 esac
 
 SPT_MODEL_DIR="$SPT_OUTPUT_BASE/finetune_ablation_$variant"
+
+if [[ "$SPT_MAX_EPOCHS" -le 1 ]]; then
+    echo "WARNING: SPT_MAX_EPOCHS=$SPT_MAX_EPOCHS; this is suitable only for a dry run."
+fi
+
+existing_history="$SPT_MODEL_DIR/trained_modelloss_history.csv"
+if [[ -f "$existing_history" && "$SPT_ALLOW_EXISTING_OUTPUT" != "1" ]]; then
+    echo "ERROR: existing ablation history found: $existing_history"
+    echo "Use a clean SPT_OUTPUT_BASE, remove the previous dry-run directory, or submit with SPT_ALLOW_EXISTING_OUTPUT=1 to continue it."
+    exit 1
+fi
+
 mkdir -p "$SPT_MODEL_DIR"
 
 run_log="$SPT_MODEL_DIR/slurm_finetune_${SLURM_JOB_ID:-manual}_${task_id}.log"
@@ -213,5 +220,5 @@ echo "Checkpoint: $SPT_MODEL_DIR/trained_model"
 echo "Metrics: $run_metrics"
 
 # Dry-run examples:
-#   sbatch --array=0 --export=ALL,SPT_MAX_EPOCHS=1,SPT_MAX_TRAIN_BATCHES=2,SPT_MAX_VAL_BATCHES=1 slurm/finetune_perf_ablation_csd3.slurm
+#   sbatch --array=0 --export=ALL,SPT_OUTPUT_BASE=./perf_exp/dry_run,SPT_MAX_EPOCHS=1,SPT_MAX_TRAIN_BATCHES=2,SPT_MAX_VAL_BATCHES=1 slurm/finetune_perf_ablation_csd3.slurm
 #   sbatch --array=0-4 slurm/finetune_perf_ablation_csd3.slurm
