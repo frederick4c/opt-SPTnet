@@ -28,8 +28,11 @@ def hungarian_matched_loss(
     loss_coord_weight=2.0,
     loss_h_weight=0.5,
     loss_d_weight=0.5,
+    hurst_loss="absolute",
     diffusion_loss="absolute",
     relative_d_eps=0.01,
+    log_h_eps=0.01,
+    log_d_eps=0.01,
     objectness_loss="bce",
 ):
     """Compute SPTnet's Hungarian-matched multi-object training loss.
@@ -65,19 +68,27 @@ def hungarian_matched_loss(
         Weights used only for Hungarian assignment.
     loss_*_weight:
         Weights used for the final selected-track training loss.
+    hurst_loss:
+        Either `"absolute"` for normalized absolute error or `"log"` for
+        SmoothL1 distance in log space.
     diffusion_loss:
-        Either `"absolute"` for normalized absolute error or `"relative"`
-        for normalized relative error against the target diffusion.
+        `"absolute"` for normalized absolute error, `"relative"` for
+        normalized relative error against the target diffusion, or `"log"` for
+        SmoothL1 distance in log space.
     relative_d_eps:
         Lower bound for relative diffusion targets, in normalized units.
+    log_h_eps, log_d_eps:
+        Lower bounds added before log-space scalar losses.
     objectness_loss:
         Either `"bce"` for probability inputs or `"bce_logits"` for raw logits.
     """
     num_batches, num_queries_from_pred, num_frames_from_pred = pred_classes.shape
     if num_queries_from_pred != num_queries:
         raise ValueError(f"Expected {num_queries} queries, got {num_queries_from_pred}.")
-    if diffusion_loss not in {"absolute", "relative"}:
-        raise ValueError(f"Unknown diffusion_loss {diffusion_loss!r}; expected 'absolute' or 'relative'.")
+    if hurst_loss not in {"absolute", "log"}:
+        raise ValueError(f"Unknown hurst_loss {hurst_loss!r}; expected 'absolute' or 'log'.")
+    if diffusion_loss not in {"absolute", "relative", "log"}:
+        raise ValueError(f"Unknown diffusion_loss {diffusion_loss!r}; expected 'absolute', 'relative', or 'log'.")
     if objectness_loss not in {"bce", "bce_logits"}:
         raise ValueError(f"Unknown objectness_loss {objectness_loss!r}; expected 'bce' or 'bce_logits'.")
 
@@ -110,6 +121,7 @@ def hungarian_matched_loss(
     gt_d = torch.cat((gt_d, zeros_pd), dim=1)
 
     criterion_mae = torch.nn.L1Loss(reduction="none").to(pred_classes.device)
+    criterion_smooth_l1 = torch.nn.SmoothL1Loss(reduction="none").to(pred_classes.device)
     pdist = torch.nn.PairwiseDistance(p=2)
 
     def class_loss_fn(pred, target, *, reduction):
@@ -159,14 +171,26 @@ def hungarian_matched_loss(
             crlbweight_h = torch.nan_to_num(crlbweight_h, nan=1.0, posinf=1.0, neginf=1.0).clamp(min=1e-4)
             crlbweight_d = torch.nan_to_num(crlbweight_d, nan=1.0, posinf=1.0, neginf=1.0).clamp(min=1e-4)
 
-            h_loss_matrix = criterion_mae(
-                pred_h[b].view(-1, 1).repeat(1, gt_h_nonzero.shape[-1]),
-                gt_h_nonzero.view(1, -1).repeat(pred_h.shape[-1], 1),
-            ) / crlbweight_h.repeat(pred_h.shape[-1], 1)
-            d_loss_matrix = criterion_mae(
-                pred_d[b].view(-1, 1).repeat(1, gt_d_nonzero.shape[-1]),
-                gt_d_nonzero.view(1, -1).repeat(pred_d.shape[-1], 1),
-            )
+            pred_h_matrix = pred_h[b].view(-1, 1).repeat(1, gt_h_nonzero.shape[-1])
+            gt_h_matrix = gt_h_nonzero.view(1, -1).repeat(pred_h.shape[-1], 1)
+            if hurst_loss == "log":
+                h_loss_matrix = criterion_smooth_l1(
+                    torch.log(pred_h_matrix.clamp_min(log_h_eps)),
+                    torch.log(gt_h_matrix.clamp_min(log_h_eps)),
+                )
+            else:
+                h_loss_matrix = criterion_mae(pred_h_matrix, gt_h_matrix)
+            h_loss_matrix = h_loss_matrix / crlbweight_h.repeat(pred_h.shape[-1], 1)
+
+            pred_d_matrix = pred_d[b].view(-1, 1).repeat(1, gt_d_nonzero.shape[-1])
+            gt_d_matrix = gt_d_nonzero.view(1, -1).repeat(pred_d.shape[-1], 1)
+            if diffusion_loss == "log":
+                d_loss_matrix = criterion_smooth_l1(
+                    torch.log(pred_d_matrix.clamp_min(log_d_eps)),
+                    torch.log(gt_d_matrix.clamp_min(log_d_eps)),
+                )
+            else:
+                d_loss_matrix = criterion_mae(pred_d_matrix, gt_d_matrix)
             if diffusion_loss == "relative":
                 d_loss_matrix = d_loss_matrix / gt_d_nonzero.clamp_min(relative_d_eps).view(1, -1)
             d_loss_matrix = d_loss_matrix / crlbweight_d.repeat(pred_h.shape[-1], 1)

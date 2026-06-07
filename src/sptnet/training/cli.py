@@ -107,8 +107,14 @@ def parse_args():
     p.add_argument('--loss-h-weight', type=float, default=0.5, help="Hurst weight used in the final selected-track loss")
     p.add_argument('--loss-d-weight', type=float, default=0.5, help="Diffusion weight used in the final selected-track loss")
     p.add_argument(
+        '--hurst-loss',
+        choices=['absolute', 'log'],
+        default='absolute',
+        help="Hurst scalar loss mode. 'absolute' preserves the current normalized L1 loss.",
+    )
+    p.add_argument(
         '--diffusion-loss',
-        choices=['absolute', 'relative'],
+        choices=['absolute', 'relative', 'log'],
         default='absolute',
         help="Diffusion scalar loss mode. 'absolute' preserves the current normalized L1 loss.",
     )
@@ -117,6 +123,18 @@ def parse_args():
         type=float,
         default=0.01,
         help="Minimum normalized target diffusion used by --diffusion-loss relative.",
+    )
+    p.add_argument(
+        '--log-h-eps',
+        type=float,
+        default=0.01,
+        help="Minimum normalized H value used by --hurst-loss log.",
+    )
+    p.add_argument(
+        '--log-d-eps',
+        type=float,
+        default=0.01,
+        help="Minimum normalized diffusion value used by --diffusion-loss log.",
     )
     p.add_argument(
         '--objectness-loss',
@@ -148,7 +166,8 @@ def main():
         "Ablation loss settings: "
         f"match_h={args.match_h_weight}, match_d={args.match_d_weight}, "
         f"loss_h={args.loss_h_weight}, loss_d={args.loss_d_weight}, "
-        f"diffusion_loss={args.diffusion_loss}, relative_d_eps={args.relative_d_eps}, "
+        f"hurst_loss={args.hurst_loss}, diffusion_loss={args.diffusion_loss}, "
+        f"relative_d_eps={args.relative_d_eps}, log_h_eps={args.log_h_eps}, log_d_eps={args.log_d_eps}, "
         f"objectness_loss={args.objectness_loss}"
     )
     
@@ -275,8 +294,11 @@ def main():
             match_d_weight=args.match_d_weight,
             loss_h_weight=args.loss_h_weight,
             loss_d_weight=args.loss_d_weight,
+            hurst_loss=args.hurst_loss,
             diffusion_loss=args.diffusion_loss,
             relative_d_eps=args.relative_d_eps,
+            log_h_eps=args.log_h_eps,
+            log_d_eps=args.log_d_eps,
             objectness_loss=args.objectness_loss,
         )
         if not torch.isfinite(t_loss):
@@ -337,8 +359,11 @@ def main():
                 match_d_weight=args.match_d_weight,
                 loss_h_weight=args.loss_h_weight,
                 loss_d_weight=args.loss_d_weight,
+                hurst_loss=args.hurst_loss,
                 diffusion_loss=args.diffusion_loss,
                 relative_d_eps=args.relative_d_eps,
+                log_h_eps=args.log_h_eps,
+                log_d_eps=args.log_d_eps,
                 objectness_loss=args.objectness_loss,
             )
             v_loss, cl_ls, coor_ls, h_ls, diff_ls, bg_ls = float(v_loss), float(cl_ls), float(coor_ls), float(h_ls), float(diff_ls), float(bg_ls)

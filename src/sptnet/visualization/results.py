@@ -800,6 +800,7 @@ def show_stitched_segmentation_results(
     deduplicate=True,
     dedup_overlap=5,
     dedup_distance=3.0,
+    stride=None,
     tile_shape_yx=(64, 64),
     xy_order="yx",
     start_frame=0,
@@ -833,6 +834,9 @@ def show_stitched_segmentation_results(
     dedup_overlap, dedup_distance:
         Duplicate-track merge settings passed to
         :func:`sptnet.segmentation.stitch.stitch_inference_results`.
+    stride:
+        Optional ``(T, Y, X)`` tile stride for order-based result filenames when
+        metadata/manifest lookup is unavailable.
     tile_shape_yx:
         Tile size used to scale normalized model coordinates.
     xy_order:
@@ -863,6 +867,7 @@ def show_stitched_segmentation_results(
         deduplicate=deduplicate,
         dedup_overlap=dedup_overlap,
         dedup_distance=dedup_distance,
+        stride=stride,
         tile_shape_yx=tile_shape_yx,
         xy_order=xy_order,
     )

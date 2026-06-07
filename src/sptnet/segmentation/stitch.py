@@ -117,6 +117,41 @@ def _candidate_source_file_for_result(path: os.PathLike) -> Path | None:
     return None
 
 
+def _resolve_related_path(anchor: os.PathLike, target: os.PathLike) -> Path:
+    """Resolve a relative stored path against likely project/result roots."""
+    target_path = Path(str(target))
+    if target_path.is_absolute():
+        return target_path
+
+    anchor_path = Path(anchor)
+    roots = [Path.cwd(), anchor_path.parent]
+    try:
+        roots.extend(anchor_path.resolve().parents)
+    except OSError:
+        roots.extend(anchor_path.absolute().parents)
+
+    seen: set[Path] = set()
+    unique_roots: list[Path] = []
+    for root in roots:
+        resolved_root = root.resolve(strict=False)
+        if resolved_root not in seen:
+            seen.add(resolved_root)
+            unique_roots.append(resolved_root)
+
+    for root in unique_roots:
+        candidate = (root / target_path).resolve(strict=False)
+        if candidate.exists():
+            return candidate
+
+    first_part = target_path.parts[0] if target_path.parts else ""
+    for root in unique_roots:
+        candidate = (root / target_path).resolve(strict=False)
+        if first_part and (root / first_part).exists():
+            return candidate
+
+    return target_path
+
+
 def _candidate_manifest_paths(path: os.PathLike, source_file: os.PathLike | None = None) -> list[Path]:
     """Return likely segmentation manifests for a result or source tile path."""
     path = Path(path)
@@ -206,7 +241,7 @@ def parse_tile_locations(
         ]
 
     if "source_file" in attrs:
-        source_file = Path(str(attrs["source_file"]))
+        source_file = _resolve_related_path(path, attrs["source_file"])
         if not source_file.exists():
             source_file = _candidate_source_file_for_result(path) or source_file
         if source_file.exists():
@@ -250,7 +285,7 @@ def parse_tile_location(path: os.PathLike, stride: Sequence[int] | None = None) 
             source_stem=str(attrs.get("source_stem", "")),
         )
     if "source_file" in attrs:
-        source_file = Path(str(attrs["source_file"]))
+        source_file = _resolve_related_path(path, attrs["source_file"])
         if not source_file.exists():
             source_file = _candidate_source_file_for_result(path) or source_file
         if source_file.exists():
@@ -489,7 +524,7 @@ def _result_source_shape_tyx(path: os.PathLike) -> tuple[int, int, int] | None:
         if source_path is None:
             return None
     else:
-        source_path = Path(str(source_file))
+        source_path = _resolve_related_path(path, source_file)
         if not source_path.exists():
             source_path = _candidate_source_file_for_result(path) or source_path
     if not source_path.exists():

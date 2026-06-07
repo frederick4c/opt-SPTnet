@@ -219,6 +219,44 @@ def test_hungarian_loss_relative_diffusion_handles_near_zero_targets():
     assert pred_d.grad is not None
 
 
+def test_hungarian_loss_log_hurst_and_diffusion_handles_near_zero_targets():
+    pred_classes = torch.full((1, 3, 3), 0.8, requires_grad=True)
+    pred_positions = torch.zeros((1, 3, 3, 2), requires_grad=True)
+    pred_h = torch.full((1, 3), 0.5, requires_grad=True)
+    pred_d = torch.full((1, 3), 0.5, requires_grad=True)
+    gt_classes = torch.tensor([[[1.0], [1.0], [0.0]]])
+    gt_positions = torch.zeros((1, 3, 1, 2))
+    gt_positions[:, 2, :, :] = float("nan")
+    gt_h = torch.tensor([[0.0]])
+    gt_d = torch.tensor([[0.0]])
+
+    loss, _, _, h_loss, d_loss, _ = hungarian_matched_loss(
+        pred_classes,
+        pred_positions,
+        pred_h,
+        pred_d,
+        gt_classes,
+        gt_positions,
+        gt_h,
+        gt_d,
+        num_queries=3,
+        diff_max=0.05,
+        num_frames=3,
+        crlb_matrix=_crlb_matrix(),
+        hurst_loss="log",
+        diffusion_loss="log",
+        log_h_eps=0.01,
+        log_d_eps=0.01,
+    )
+
+    assert torch.isfinite(loss)
+    assert np.isfinite(h_loss)
+    assert np.isfinite(d_loss)
+    loss.backward()
+    assert pred_h.grad is not None
+    assert pred_d.grad is not None
+
+
 def test_hungarian_loss_accepts_objectness_logits():
     pred_classes = torch.tensor([[[3.0, 3.0, -3.0], [-3.0, -3.0, -3.0], [-2.0, -2.0, -2.0]]], requires_grad=True)
     pred_positions = torch.zeros((1, 3, 3, 2), requires_grad=True)
