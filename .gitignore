@@ -12,6 +12,7 @@ slurm/*.out
 slurm/*.err
 
 # notebooks
+notebooks/
 *.ipynb
 
 # docs
@@ -25,11 +26,6 @@ experiments/spatial_diffusion_visual/spatial_diffusion_visual.tif
 # report
 report/
 
-# notes
-*.md
-!README.md
-.codexrules
-notebooks/
 
 # data
 testdata*
