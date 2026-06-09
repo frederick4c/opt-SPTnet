@@ -58,6 +58,9 @@ tweaks are intentionally omitted.
   the same dataset path.
 - Added explicit HDF5 file lifecycle methods (`close`, context manager support,
   destructor cleanup) to reduce leaked file handles.
+- Training datasets now read file metadata at construction and open HDF5/MAT
+  handles lazily while fetching samples, so large runs with many individual
+  files do not keep every file open at once.
 - Added validation that `num_queries` is large enough for the label slots before
   padding labels to query count.
 - Preserved the original class/position label semantics, including:

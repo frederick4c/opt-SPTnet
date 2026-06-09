@@ -25,57 +25,61 @@ class TransformerMatDataset(torch.utils.data.Dataset):
         super().__init__()
         self.config = config
         self.dataset_path = dataset_path
-        self.dataset = h5py.File(dataset_path, "r")
+        self.dataset = None
 
-        self.has_labels = all(k in self.dataset for k in ["Hlabel", "Clabel", "traceposition"])
-        if "timelapsedata" not in self.dataset:
-            raise KeyError("Missing variable 'timelapsedata' in dataset.")
-        self.td = self.dataset["timelapsedata"]
+        with h5py.File(dataset_path, "r") as dataset:
+            self.has_labels = all(k in dataset for k in ["Hlabel", "Clabel", "traceposition"])
+            if "timelapsedata" not in dataset:
+                raise KeyError("Missing variable 'timelapsedata' in dataset.")
+            self._td_shape = tuple(dataset["timelapsedata"].shape)
+            self._td_ndim = dataset["timelapsedata"].ndim
 
     def __len__(self):
         """Return the number of movie samples stored in the file."""
-        if self.td.ndim == 3:
+        if self._td_ndim == 3:
             return 1
-        if self.td.ndim == 4:
-            return self.td.shape[0]
-        raise ValueError(f"'timelapsedata' must be 3D or 4D, got {self.td.shape}.")
+        if self._td_ndim == 4:
+            return self._td_shape[0]
+        raise ValueError(f"'timelapsedata' must be 3D or 4D, got {self._td_shape}.")
 
     def __getitem__(self, idx):
         """Return one sample dictionary for training or video-only inference."""
-        if self.td.ndim == 3:
-            if idx != 0:
-                raise IndexError("Index out of range for single 3D movie.")
-            video = np.array(self.td)
-        else:
-            video = np.array(self.td[idx])
+        with h5py.File(self.dataset_path, "r") as dataset:
+            td = dataset["timelapsedata"]
+            if self._td_ndim == 3:
+                if idx != 0:
+                    raise IndexError("Index out of range for single 3D movie.")
+                video = np.array(td)
+            else:
+                video = np.array(td[idx])
 
-        if not self.has_labels:
-            return {"video": video}
+            if not self.has_labels:
+                return {"video": video}
 
-        hlabel_ref = np.array(self.dataset["Hlabel"][:, idx])
-        clabel_ref = np.array(self.dataset["Clabel"][:, idx])
-        position_ref = np.array(self.dataset["traceposition"][:, idx])
+            hlabel_ref = np.array(dataset["Hlabel"][:, idx])
+            clabel_ref = np.array(dataset["Clabel"][:, idx])
+            position_ref = np.array(dataset["traceposition"][:, idx])
 
-        if len(hlabel_ref) > self.config.num_queries:
-            raise ValueError(
-                f"num_queries ({self.config.num_queries}) must be >= label slots ({len(hlabel_ref)})."
-            )
+            if len(hlabel_ref) > self.config.num_queries:
+                raise ValueError(
+                    f"num_queries ({self.config.num_queries}) must be >= label slots ({len(hlabel_ref)})."
+                )
 
-        hlabel = np.zeros(len(hlabel_ref))
-        clabel = np.zeros(len(hlabel_ref))
-        position = np.full((video.shape[0], len(hlabel_ref), 2), np.nan)
-        class_label = np.full((video.shape[0], len(hlabel_ref)), 0)
+            hlabel = np.zeros(len(hlabel_ref))
+            clabel = np.zeros(len(hlabel_ref))
+            position = np.full((video.shape[0], len(hlabel_ref), 2), np.nan)
+            class_label = np.full((video.shape[0], len(hlabel_ref)), 0)
 
-        j = 0
-        for i in range(len(hlabel_ref)):
-            if np.array(self.dataset[hlabel_ref[i]][0]) != 0:
-                hlabel[j] = float(np.array(self.dataset[hlabel_ref[i]][0]).item())
-                clabel[j] = float(np.array(self.dataset[clabel_ref[i]][0]).item())
-                pos_arr = np.array(self.dataset[position_ref[i]]).T
-                if pos_arr.size == video.shape[0] * 2:
-                    position[:, j, :] = pos_arr
-                    class_label[:, j] = np.multiply(~np.isnan(position[:, j, 0]), 1)
-                    j += 1
+            j = 0
+            for i in range(len(hlabel_ref)):
+                if np.array(dataset[hlabel_ref[i]][0]) != 0:
+                    hlabel[j] = float(np.array(dataset[hlabel_ref[i]][0]).item())
+                    clabel[j] = float(np.array(dataset[clabel_ref[i]][0]).item())
+                    pos_arr = np.array(dataset[position_ref[i]]).T
+                    if pos_arr.size == video.shape[0] * 2:
+                        position[:, j, :] = pos_arr
+                        class_label[:, j] = np.multiply(~np.isnan(position[:, j, 0]), 1)
+                        j += 1
 
         query_pad = self.config.num_queries - hlabel.shape[0]
         class_label_pd = np.pad(class_label, [(0, 0), (0, query_pad)], "constant", constant_values=0)

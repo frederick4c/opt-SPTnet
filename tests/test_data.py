@@ -128,6 +128,20 @@ def test_transformer_mat_dataset_reads_unlabeled_single_movie(tmp_path):
             dataset[1]
 
 
+def test_transformer_mat_dataset_does_not_hold_hdf5_handles(tmp_path):
+    hdf5_path = tmp_path / "lazy_handles.h5"
+    video = np.arange(3 * 4 * 5, dtype=np.float32).reshape(3, 4, 5)
+    _write_hdf5(hdf5_path, "timelapsedata", video)
+
+    before = h5py.h5f.get_obj_count(h5py.h5f.OBJ_ALL, h5py.h5f.OBJ_FILE)
+    datasets = [TransformerMatDataset(SimpleNamespace(num_queries=4, image_size=8), hdf5_path) for _ in range(20)]
+    after = h5py.h5f.get_obj_count(h5py.h5f.OBJ_ALL, h5py.h5f.OBJ_FILE)
+
+    assert after == before
+    assert all(dataset.dataset is None for dataset in datasets)
+    np.testing.assert_array_equal(datasets[0][0]["video"], video)
+
+
 def test_transformer_mat_dataset_reads_labels_and_masks_out_of_fov(tmp_path):
     mat_path = tmp_path / "labeled.mat"
     video = np.ones((1, 3, 4, 4), dtype=np.float32)
