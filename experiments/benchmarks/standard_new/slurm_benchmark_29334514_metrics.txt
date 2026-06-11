@@ -1,0 +1,15 @@
+run_name=standard_new
+job_id=29334514
+train_script=SPTnet_training_cli.py
+train_data=./TrainData/*.mat
+max_files=100
+matched_training_files=100
+first_training_file=./TrainData/trainingvideos_1.mat
+last_training_file=./TrainData/trainingvideos_188.mat
+model_dir=./Trained_models/benchmarks/standard_new
+wall_start=2026-05-14 10:31:37 BST
+wall_end=2026-05-14 10:50:02 BST
+total_wall_seconds=1105
+training_seconds=852
+startup_plus_data_loading_seconds=253
+exit_status=0
