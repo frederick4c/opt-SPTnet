@@ -1,5 +1,13 @@
 """Visualization helpers for SPTnet inference results."""
 
+from sptnet.visualization.background import (
+    frame_snr,
+    normalize_contrast,
+    remove_background,
+    remove_spatial_background,
+    stack_snr,
+    subtract_temporal_background,
+)
 from sptnet.visualization.results import (
     build_animation,
     build_stitched_tracks_animation,
@@ -23,6 +31,12 @@ from sptnet.visualization.results import (
 )
 
 __all__ = [
+    "frame_snr",
+    "normalize_contrast",
+    "remove_background",
+    "remove_spatial_background",
+    "stack_snr",
+    "subtract_temporal_background",
     "build_animation",
     "build_stitched_tracks_animation",
     "find_mat_result_pairs",

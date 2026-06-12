@@ -367,6 +367,44 @@ do not belong in the report or source comments.
   short subsection IF the forgetting check is done; otherwise present it as a
   distribution-adaptation demonstration with that caveat explicit.
 
+## 2026-06-11: forgetting test (held-out sparse general distribution)
+
+- Data: `diff_evals/forget/` with GT in `diff_evals/forget/gt/gt/trainingvideos_N.h5`
+  (flat layout, no `_gt` suffix), 28 files x 100 videos, seed 70123, sparse
+  1-10 particles (mean 5.77/video). Inference clip 0 -> 28 videos, ~161 GT
+  particles. Two models: `final_full/inference` (pre-FT final) and
+  `final_full_ft/inference` (the binned fine-tune). Matched eval, gate 0.25.
+- Results on the sparse set (paired on the same 28 videos):
+  - Final model FT: recall 0.95, precision 0.94, loc_rmse 0.023 (~0.7px),
+    per-track MAE_D 0.096, slope 0.27, corr 0.49, MAE_H 0.13, 153 matched.
+  - Final full model: recall 0.22, precision 0.22, loc_rmse 0.143 (~4.6px),
+    per-track MAE_D 0.072, slope 0.63, corr 0.69, MAE_H 0.17, only 36 matched.
+- Interpretation (two clear, opposite signals):
+  1. DETECTION/LOCALISATION: NOT forgotten -- the FT model is far better on the
+     sparse set too (recall 0.95 vs 0.22, 0.7px vs 4.6px). The big detection gap
+     appears on BOTH binned and sparse evals for all the "full" models
+     (ti2/dense-sparse/final all ~0.22-0.28 recall), so it is not a
+     particle-density effect; the fine-tune broadly improved detection. (Open
+     puzzle: why binned fine-tuning improves sparse detection so much -- likely
+     the final model was undertrained on detection, or a train/eval
+     generator-domain effect. Note, do not over-claim a mechanism.)
+  2. DIFFUSION CALIBRATION: specialised to the binned distribution and does NOT
+     transfer -- FT slope collapses to 0.27 on sparse (vs 0.84 on binned),
+     i.e. near-flat D predictions. So the high-D bias "fix" is
+     distribution-specific overfitting of the regression head, the real
+     forgetting signal.
+- Caveats: small/low-power -- final_full matched only 36 particles, so its
+  sparse slope/MAE rest on a tiny self-selected subset; and the per-track MAE
+  comparison (0.096 FT vs 0.072 final) is confounded by detection selection bias
+  (FT scores over 153 incl. hard particles, final over 36 easy ones). The
+  cleaner, less-confounded signal is the calibration slope. A fairer follow-up:
+  compute D error only on GT particles BOTH models detect (requires storing the
+  GT particle index per match in `match_video`).
+- Report framing: the fine-tune improved detection/localisation broadly but
+  specialised diffusion calibration to the binned distribution (clear trade-off
+  on the regression head). Honest "targeted adaptation with a transfer cost",
+  not a uniformly better model.
+
 - The 12x speed claim currently has NO committed in-repo evidence. The benchmark
   harness exists (`slurm/train_sptnet_benchmark_csd3.slurm`): it runs
   `sptnet-train` under `/usr/bin/time -v`, parses the script's "Training takes N

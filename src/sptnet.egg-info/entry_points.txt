@@ -5,6 +5,7 @@ sptnet-generate-training-data = sptnet.training.data_generator:main
 sptnet-hdf5-to-tiff = sptnet.data.conversion:main
 sptnet-inference = sptnet.inference.cli:main
 sptnet-mat-to-tiff = sptnet.data.conversion:main
+sptnet-preprocess = sptnet.visualization.preprocess:main
 sptnet-segment = sptnet.segmentation.split:main
 sptnet-stitch = sptnet.segmentation.stitch:main
 sptnet-train = sptnet.training.cli:main

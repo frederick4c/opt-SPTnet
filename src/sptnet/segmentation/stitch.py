@@ -143,6 +143,11 @@ def _resolve_related_path(anchor: os.PathLike, target: os.PathLike) -> Path:
         if candidate.exists():
             return candidate
 
+    for root in unique_roots:
+        candidate = (root / target_path).resolve(strict=False)
+        if candidate.parent.exists() or candidate.parent.parent.exists():
+            return candidate
+
     first_part = target_path.parts[0] if target_path.parts else ""
     for root in unique_roots:
         candidate = (root / target_path).resolve(strict=False)

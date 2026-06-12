@@ -751,9 +751,10 @@ def build_stitched_tracks_animation(
     if frames.size == 0:
         raise ValueError("No frames selected for display.")
 
-    if max_tracks is None:
-        max_tracks = max_labels
-
+    # ``max_tracks`` controls how many predicted tracks are *drawn* (None = all);
+    # ``max_labels`` only limits how many carry the H/D text annotation. These
+    # were previously conflated, which silently hid every track beyond the top
+    # ``max_labels`` even when the model detected far more particles.
     obj_est, xy_est, est_H, est_C = stitched_tracks_to_animation_arrays(
         tracks,
         frame_start=start_frame,
@@ -785,7 +786,44 @@ def build_stitched_tracks_animation(
         gt_coordinate_offset=0.0,
         show_ground_truth_constants=False,
         show_predicted_constants=show_predicted_constants,
+        max_constant_labels=max_labels,
+        tail=tail,
     )
+
+
+def _score_tracks_against_movie(tracks, video_frames):
+    """Mean per-frame-normalized image intensity sampled at predicted points.
+
+    Used to auto-detect the correct ``xy_order`` for stitched results: the
+    orientation whose predictions land on real signal scores noticeably higher
+    than the one that transposes x/y onto background. Returns ``-inf`` when no
+    track point falls inside the movie.
+    """
+    video_frames = np.asarray(video_frames)
+    T, H, W = video_frames.shape
+    flat = video_frames.reshape(T, -1)
+    vmin = flat.min(axis=1).astype(np.float32)
+    vrange = flat.max(axis=1).astype(np.float32) - vmin
+    vrange[vrange <= 0] = 1.0
+
+    values = []
+    for track in tracks:
+        pts = np.asarray(track.points)
+        if pts.size == 0:
+            continue
+        f = pts[:, 0].astype(np.int64)
+        yi = np.rint(pts[:, 1]).astype(np.int64)
+        xi = np.rint(pts[:, 2]).astype(np.int64)
+        valid = (f >= 0) & (f < T) & (yi >= 0) & (yi < H) & (xi >= 0) & (xi < W)
+        if not np.any(valid):
+            continue
+        f, yi, xi = f[valid], yi[valid], xi[valid]
+        raw = video_frames[f, yi, xi].astype(np.float32)
+        values.append((raw - vmin[f]) / vrange[f])
+
+    if not values:
+        return float("-inf")
+    return float(np.concatenate(values).mean())
 
 
 def show_stitched_segmentation_results(
@@ -802,7 +840,7 @@ def show_stitched_segmentation_results(
     dedup_distance=3.0,
     stride=None,
     tile_shape_yx=(64, 64),
-    xy_order="yx",
+    xy_order="auto",
     start_frame=0,
     num_frames=180,
     interval=80,
@@ -840,8 +878,11 @@ def show_stitched_segmentation_results(
     tile_shape_yx:
         Tile size used to scale normalized model coordinates.
     xy_order:
-        Coordinate order in ``estimation_xy``. Current SPTnet inference outputs
-        use ``"yx"``.
+        Coordinate order in ``estimation_xy``. ``"auto"`` (default) stitches the
+        results both ways and keeps the orientation whose predictions best align
+        with image intensity; this is robust to models that store x/y in the
+        opposite order (for example some finetuned checkpoints). Pass ``"yx"`` or
+        ``"xy"`` to force a specific order.
     start_frame, num_frames:
         Full-movie frame window to animate.
     show_ground_truth:
@@ -859,19 +900,48 @@ def show_stitched_segmentation_results(
     if not result_paths:
         raise FileNotFoundError(f"No stitched result files found for {result_pattern!r}.")
 
-    tracks = segmentation_stitch.stitch_inference_results(
-        result_paths,
-        score_threshold=threshold,
-        min_track_len=min_track_len,
-        max_step=max_step,
-        deduplicate=deduplicate,
-        dedup_overlap=dedup_overlap,
-        dedup_distance=dedup_distance,
-        stride=stride,
-        tile_shape_yx=tile_shape_yx,
-        xy_order=xy_order,
-    )
     video_frames = load_movie_for_stitched_results(movie_path, video_index=video_index)
+
+    def _stitch_with_order(order):
+        return segmentation_stitch.stitch_inference_results(
+            result_paths,
+            score_threshold=threshold,
+            min_track_len=min_track_len,
+            max_step=max_step,
+            deduplicate=deduplicate,
+            dedup_overlap=dedup_overlap,
+            dedup_distance=dedup_distance,
+            stride=stride,
+            tile_shape_yx=tile_shape_yx,
+            xy_order=order,
+        )
+
+    if str(xy_order).lower() == "auto":
+        scored = {
+            order: (lambda t: (t, _score_tracks_against_movie(t, video_frames)))(
+                _stitch_with_order(order)
+            )
+            for order in ("xy", "yx")
+        }
+        best_order = max(scored, key=lambda order: scored[order][1])
+        other_order = "yx" if best_order == "xy" else "xy"
+        tracks = scored[best_order][0]
+        print(
+            f"  Auto xy_order: chose {best_order!r} "
+            f"(alignment {scored[best_order][1]:.3f} vs {other_order!r} "
+            f"{scored[other_order][1]:.3f}, {len(tracks)} tracks)."
+        )
+        if scored[best_order][1] - scored[other_order][1] < 0.05:
+            print(
+                "  WARNING: both coordinate orders score almost the same, so the "
+                "predictions are not locking onto image structure in either "
+                "orientation. This points to the model failing on this movie "
+                "(e.g. dense data far from its training distribution), not a "
+                "coordinate-order problem."
+            )
+    else:
+        tracks = _stitch_with_order(xy_order)
+
     gt_positions = (
         load_trackmate_ground_truth_for_stitched_results(movie_path)
         if show_ground_truth
@@ -903,7 +973,8 @@ def build_animation(video_frames, gt_pos_list, gt_h_list, gt_c_list,
                     threshold=0.90, min_track_len=5, num_queries=20,
                     interval=200, gt_coordinate_offset=32.0,
                     show_ground_truth_constants=True,
-                    show_predicted_constants=True):
+                    show_predicted_constants=True,
+                    max_constant_labels=None, tail=None):
     """
     Build a matplotlib FuncAnimation for one video.
 
@@ -924,6 +995,12 @@ def build_animation(video_frames, gt_pos_list, gt_h_list, gt_c_list,
     gt_coordinate_offset
                  : value added to GT coordinates before plotting. Simulated
                    MAT labels use 32; full-frame TrackMate labels use 0.
+    max_constant_labels
+                 : cap on how many predicted tracks carry the H/D text label
+                   per frame (queries are score-ordered for stitched input, so
+                   this annotates the most confident ones). None labels all.
+    tail         : if set, only the last ``tail`` frames of each trajectory are
+                   drawn, which declutters dense scenes. None draws full history.
 
     Returns
     -------
@@ -993,9 +1070,11 @@ def build_animation(video_frames, gt_pos_list, gt_h_list, gt_c_list,
                             marker='x', linewidths=2, zorder=10)
             dynamic_artists.append(sc)
 
-            # Full trajectory (all valid frames)
+            # Full trajectory (all valid frames), optionally limited to a tail
             valid = ~np.isnan(pos[:, 0])
             vf = frmlist[valid]
+            if tail is not None:
+                vf = vf[(vf <= frame) & (vf > frame - int(tail))]
             ln, = ax.plot(gt_x[vf], gt_y[vf], '-o', color='red',
                           markersize=2, linewidth=1.5, markerfacecolor='red', zorder=9)
             dynamic_artists.append(ln)
@@ -1011,6 +1090,7 @@ def build_animation(video_frames, gt_pos_list, gt_h_list, gt_c_list,
                 dynamic_artists.extend([t1, t2])
 
         # ── Predictions (parula-coloured per query) ───────────────────────
+        labels_drawn = 0
         for qi in range(num_queries):
             if not predict[frame, qi]:
                 continue
@@ -1019,12 +1099,21 @@ def build_animation(video_frames, gt_pos_list, gt_h_list, gt_c_list,
 
             color = cmap_vals[qi]
             active_frames = frmlist[predict[:, qi]]
+            if tail is not None:
+                active_frames = active_frames[
+                    (active_frames <= frame) & (active_frames > frame - int(tail))
+                ]
 
             tx = xy_est[active_frames, qi, 0]
             ty = xy_est[active_frames, qi, 1]
             cx, cy = xy_est[frame, qi, 0], xy_est[frame, qi, 1]
             h_val = est_H[qi] if qi < est_H.size else 0
             c_val = est_C[qi] if qi < est_C.size else 0
+            show_const = show_predicted_constants and (
+                max_constant_labels is None or labels_drawn < max_constant_labels
+            )
+            if show_const:
+                labels_drawn += 1
             dynamic_artists.extend(
                 _draw_prediction_overlay(
                     ax,
@@ -1036,7 +1125,7 @@ def build_animation(video_frames, gt_pos_list, gt_h_list, gt_c_list,
                     box_size=cropsize,
                     h_value=h_val,
                     diffusion_value=c_val,
-                    show_constants=show_predicted_constants,
+                    show_constants=show_const,
                 )
             )
 

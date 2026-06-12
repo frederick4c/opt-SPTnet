@@ -32,6 +32,8 @@ src/sptnet/training/data_generator.py
 src/sptnet/training/losses.py
 src/sptnet/training/trainer.py
 src/sptnet/visualization/__init__.py
+src/sptnet/visualization/background.py
+src/sptnet/visualization/preprocess.py
 src/sptnet/visualization/results.py
 tests/test_conversion.py
 tests/test_crlb.py
