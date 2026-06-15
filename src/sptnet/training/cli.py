@@ -29,8 +29,10 @@ if torch.cuda.is_available():
     torch.cuda.empty_cache()
 
 # --- Ampere / Turing GPU optimizations ---
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
+# Benchmark toggle: set SPT_DISABLE_TF32=1 to run without TF32 (decomposition runs).
+_ALLOW_TF32 = os.environ.get("SPT_DISABLE_TF32", "0") != "1"
+torch.backends.cuda.matmul.allow_tf32 = _ALLOW_TF32
+torch.backends.cudnn.allow_tf32 = _ALLOW_TF32
 
 current_folder = os.path.dirname(os.path.abspath(__file__))
 RANDOM_SEED = 68
@@ -186,7 +188,8 @@ def main():
         device = torch.device('cuda')
     else:
         device = torch.device('cpu')
-    use_amp = device.type == 'cuda'
+    # Benchmark toggle: set SPT_DISABLE_AMP=1 to run in full precision (decomposition runs).
+    use_amp = device.type == 'cuda' and os.environ.get("SPT_DISABLE_AMP", "0") != "1"
 
     # Tk().withdraw() # keep the root window from appearing
     # filename_train = askopenfilename(multiple=True, initialdir=current_folder, title='#######Please select all the Training Data File########') # show an "Open" dialog box and return the path to the selected file
@@ -369,8 +372,10 @@ def main():
             v_loss, cl_ls, coor_ls, h_ls, diff_ls, bg_ls = float(v_loss), float(cl_ls), float(coor_ls), float(h_ls), float(diff_ls), float(bg_ls)
         return v_loss, cl_ls, coor_ls, h_ls, diff_ls, bg_ls
 
-    torch.backends.cudnn.benchmark = True  # use the fastest convolution methods when the inputs size are fixed improves performance
-    #torch.backends.cudnn.benchmark = False
+    # use the fastest convolution methods when the input size is fixed; improves performance.
+    # Benchmark toggle: set SPT_CUDNN_BENCHMARK=0 to disable autotuning (decomposition runs).
+    cudnn_benchmark = os.environ.get("SPT_CUDNN_BENCHMARK", "1") != "0"
+    torch.backends.cudnn.benchmark = cudnn_benchmark
     #torch.use_deterministic_algorithms(True)
     transformer3d = Transformer3d(d_model=256,dropout=0,nhead=8,dim_feedforward=1024,num_encoder_layers=6,num_decoder_layers=6,normalize_before=False)
     transformer = Transformer(d_model=256,dropout=0,nhead=8,dim_feedforward=1024,num_encoder_layers=6,num_decoder_layers=6,normalize_before=False)
@@ -394,6 +399,19 @@ def main():
     # scheduler_cosine = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=20, eta_min=1e-6)
     ##############################################
     csv_log_path = spt.path_saved_model + 'loss_history.csv'
+    # Per-epoch wall-time log for the speed benchmark. One row per epoch; train and
+    # validation timed separately. Resolved optimization toggles recorded for traceability.
+    timing_csv_path = os.path.join(os.path.dirname(full_path), 'epoch_timing.csv')
+
+    def _sync():
+        if device.type == 'cuda':
+            torch.cuda.synchronize()
+
+    if not os.path.exists(timing_csv_path):
+        with open(timing_csv_path, 'w') as tf:
+            tf.write('epoch,train_seconds,val_seconds,n_train_batches,n_val_batches,'
+                     'amp,tf32,cudnn_benchmark\n')
+
     resume_history_path = args.resume_history or csv_log_path
     if args.resume_history:
         _copy_loss_history(args.resume_history, csv_log_path)
@@ -476,6 +494,8 @@ def main():
         v_loss_total_bg = 0
         pbar = tqdm(train_dataloader, desc=f"Epoch {epoch} [train]")
         train_batch_count = 0
+        _sync()
+        _t_train_start = time.time()
         for batch_idx, data in enumerate(pbar):
             train_batch_count = batch_idx + 1
             t_loss, cl_ls, coor_ls, h_ls, diff_ls, bg_ls = train_step(batch_idx, data)
@@ -489,6 +509,8 @@ def main():
             if args.max_train_batches > 0 and (batch_idx + 1) >= args.max_train_batches:
                 print(f"Stopping train epoch early after {args.max_train_batches} batches (--max-train-batches).")
                 break
+        _sync()
+        train_seconds = time.time() - _t_train_start
         if train_batch_count == 0:
             raise RuntimeError(
                 "Training DataLoader produced no batches. "
@@ -503,8 +525,11 @@ def main():
             # lr.append(scheduler_rdpl.get_lr()[0])
 
         did_validate = (epoch == 1) or (args.val_every > 0 and epoch % args.val_every == 0)
+        val_seconds = 0.0
+        val_batch_count = 0
         if did_validate:
-            val_batch_count = 0
+            _sync()
+            _t_val_start = time.time()
             for batch_idx, data in enumerate(val_dataloader):
                 val_batch_count = batch_idx + 1
                 v_loss, cl_ls, coor_ls, h_ls, diff_ls, bg_ls = val_step(batch_idx, data)
@@ -517,6 +542,8 @@ def main():
                 if args.max_val_batches > 0 and (batch_idx + 1) >= args.max_val_batches:
                     print(f"Stopping validation early after {args.max_val_batches} batches (--max-val-batches).")
                     break
+            _sync()
+            val_seconds = time.time() - _t_val_start
             if val_batch_count > 0:
                 v_loss_epoch = v_loss_total / val_batch_count
                 v_loss_epoch_cls = v_loss_total_cls / val_batch_count
@@ -596,6 +623,12 @@ def main():
             csv_f.write(f'{epoch},{t_loss_epoch},{v_loss_epoch},{t_loss_epoch_cls},{v_loss_epoch_cls},'
                         f'{t_loss_epoch_coor},{v_loss_epoch_coor},{t_loss_epoch_hurst},{v_loss_epoch_hurst},'
                         f'{t_loss_epoch_diff},{v_loss_epoch_diff},{t_loss_epoch_bg},{v_loss_epoch_bg}\n')
+
+        # ---- Write per-epoch wall-time row for the speed benchmark ----
+        with open(timing_csv_path, 'a') as tf:
+            tf.write(f'{epoch},{train_seconds:.4f},{val_seconds:.4f},'
+                     f'{train_batch_count},{val_batch_count},'
+                     f'{int(use_amp)},{int(_ALLOW_TF32)},{int(cudnn_benchmark)}\n')
 
         # ---- Save learning curve plot every 5 epochs or when a new best model is saved ----
         if epoch % 5 == 0 or (did_validate and no_improvement == 0):
