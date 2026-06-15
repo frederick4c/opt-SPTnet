@@ -19,9 +19,15 @@ This harness replaces that with a per-epoch, equal-work, repeated measurement.
 
 ## Design
 
-- **Metric:** steady-state **training** seconds per epoch. Epoch 1 of every run
-  is dropped as warmup (DataLoader spin-up, cudnn autotuning, CUDA allocator).
-  Validation time is logged separately and excluded from the headline.
+- **Metrics** (both logged per epoch; epoch 1 dropped as warmup — DataLoader
+  spin-up, cudnn autotuning, CUDA allocator):
+  - `train_seconds` — the training batch loop only. This is the **headline
+    compute** metric; it cleanly isolates AMP/TF32/cudnn and is independent of
+    plotting/logging/checkpointing (which happen outside the timer).
+  - `epoch_total_seconds` — the full epoch including validation, logging,
+    checkpointing and per-epoch plotting. Use this to measure the **plotting
+    removal** (old vs old_no_plot); it does not appear in `train_seconds`.
+  Validation time is also logged separately (`val_seconds`).
 - **Fixed identical workload** for old and new: same data subset, batch size 16,
   query 20, lr 1e-4, max_dc 0.5, `--max-epochs 4`. The old script hardcodes
   early-stop patience 6, so 4 epochs always run fully with no early-stop
@@ -43,9 +49,10 @@ This harness replaces that with a per-epoch, equal-work, repeated measurement.
 ## Instrumentation
 
 - New (`src/sptnet/training/cli.py`) writes `epoch_timing.csv` per run with
-  `epoch,train_seconds,val_seconds,n_train_batches,n_val_batches,amp,tf32,cudnn_benchmark`
-  (timed with `torch.cuda.synchronize()` around each pass). Env toggles:
-  `SPT_DISABLE_AMP=1`, `SPT_DISABLE_TF32=1`, `SPT_CUDNN_BENCHMARK=0`.
+  `epoch,train_seconds,val_seconds,epoch_total_seconds,n_train_batches,n_val_batches,amp,tf32,cudnn_benchmark`
+  (train/val timed with `torch.cuda.synchronize()`; `epoch_total_seconds` spans
+  the whole epoch incl. plotting). Env toggles: `SPT_DISABLE_AMP=1`,
+  `SPT_DISABLE_TF32=1`, `SPT_CUDNN_BENCHMARK=0`.
 - Old (`../SPTnet/SPTnet_training_old_cli.py`) needs the **same** `epoch_timing.csv`
   emitter plus an `SPT_DISABLE_PLOT=1` toggle. This must be added on CSD3 (the
   old repo lives there alongside its data); see the patch instructions at the
@@ -105,17 +112,31 @@ Each task writes to `Trained_models/benchmarks/<RUN_NAME>/run_NN/`
 Collect the per-run `epoch_timing.csv` files under one tree
 (`experiments/benchmarks/<config>/run_NN/epoch_timing.csv`), then:
 
+Run it once per metric (outputs are metric-suffixed so they don't clash):
+
 ```bash
+# Headline compute speedup + AMP/TF32/cudnn decomposition
 python experiments/benchmarks/analyze_benchmarks.py \
   --results-root experiments/benchmarks \
   --new-config new_full --old-config old \
-  --warmup-epochs 1 --bootstrap 10000
+  --metric train_seconds --warmup-epochs 1 --bootstrap 10000
+
+# End-to-end speedup + plotting contribution (old vs old_no_plot)
+python experiments/benchmarks/analyze_benchmarks.py \
+  --results-root experiments/benchmarks \
+  --new-config new_full --old-config old --old-noplot-config old_no_plot \
+  --metric epoch_total_seconds --warmup-epochs 1 --bootstrap 10000
 ```
 
-Outputs to `experiments/benchmarks/results/`:
-- `summary.csv` — per-config mean/median per-epoch time + 95% CI,
-- `summary.md` — headline speedup (old/new) with CI + decomposition table,
-- `per_epoch_times.png` — per-config distribution plot.
+Outputs to `experiments/benchmarks/results/` (per metric):
+- `summary_<metric>.csv` — per-config mean/median per-epoch time + 95% CI,
+- `summary_<metric>.md` — headline speedup (old/new) + CI, the AMP/TF32/cudnn
+  decomposition, and the plotting-contribution block,
+- `per_epoch_<metric>.png` — per-config distribution plot.
+
+Use `train_seconds` for the headline (clean compute speedup) and the AMP/TF32/
+cudnn decomposition; use `epoch_total_seconds` for the plotting contribution
+(the `old` vs `old_no_plot` block — it is ~0 on `train_seconds` by construction).
 
 Commit `results/` plus every per-run `epoch_timing.csv` and `*_metrics.txt` so
 each report figure maps to a committed artifact.
@@ -125,14 +146,19 @@ each report figure maps to a committed artifact.
 Mirror the new instrumentation in `../SPTnet/SPTnet_training_old_cli.py`:
 
 1. Before the epoch `while` loop, create `epoch_timing.csv` in `args.model_dir`
-   with the same 8-column header, and define
-   `def _sync(): torch.cuda.synchronize() if torch.cuda.is_available()`.
+   with the same 9-column header
+   (`epoch,train_seconds,val_seconds,epoch_total_seconds,n_train_batches,n_val_batches,amp,tf32,cudnn_benchmark`),
+   and define `def _sync(): torch.cuda.synchronize() if torch.cuda.is_available()`.
+   Stamp `_t_epoch_start = time.time()` at the top of the loop and write
+   `epoch_total_seconds = time.time() - _t_epoch_start` at the bottom (AFTER the
+   plotting block) so it captures plotting.
 2. Read `_DISABLE_PLOT = os.environ.get("SPT_DISABLE_PLOT","0") == "1"`. When set,
    replace `fig, ax = plt.subplots(...)` with a no-op axis shim (an object whose
    `__getitem__` returns self and whose `plot`/`set_title` are no-ops) and skip
    the per-epoch `plt.tight_layout()/plt.pause()/plt.savefig()`.
 3. Time the train loop and the validation loop with `_sync()` + `time.time()`
-   and append one row per epoch: `amp=0, tf32=0, cudnn_benchmark=0` (the old
-   script's actual settings).
+   and append one row per epoch with `epoch_total_seconds` and
+   `amp=0, tf32=0, cudnn_benchmark=0` (the old script's actual settings — no AMP,
+   no TF32, `cudnn.benchmark=False`).
 
 See the "Codex prompt" handed off with this change for the exact edits.

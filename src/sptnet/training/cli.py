@@ -409,8 +409,8 @@ def main():
 
     if not os.path.exists(timing_csv_path):
         with open(timing_csv_path, 'w') as tf:
-            tf.write('epoch,train_seconds,val_seconds,n_train_batches,n_val_batches,'
-                     'amp,tf32,cudnn_benchmark\n')
+            tf.write('epoch,train_seconds,val_seconds,epoch_total_seconds,'
+                     'n_train_batches,n_val_batches,amp,tf32,cudnn_benchmark\n')
 
     resume_history_path = args.resume_history or csv_log_path
     if args.resume_history:
@@ -479,6 +479,7 @@ def main():
     while no_improvement < max_num_of_epoch_without_improving and (args.max_epochs <= 0 or epoch <= args.max_epochs):
     # for epoch in range(n_epochs):
         print(f"Starting Epoch {epoch}...")
+        _t_epoch_start = time.time()
         epoch_list.append(epoch)
         t_loss_total = 0
         t_loss_total_cls = 0
@@ -624,12 +625,6 @@ def main():
                         f'{t_loss_epoch_coor},{v_loss_epoch_coor},{t_loss_epoch_hurst},{v_loss_epoch_hurst},'
                         f'{t_loss_epoch_diff},{v_loss_epoch_diff},{t_loss_epoch_bg},{v_loss_epoch_bg}\n')
 
-        # ---- Write per-epoch wall-time row for the speed benchmark ----
-        with open(timing_csv_path, 'a') as tf:
-            tf.write(f'{epoch},{train_seconds:.4f},{val_seconds:.4f},'
-                     f'{train_batch_count},{val_batch_count},'
-                     f'{int(use_amp)},{int(_ALLOW_TF32)},{int(cudnn_benchmark)}\n')
-
         # ---- Save learning curve plot every 5 epochs or when a new best model is saved ----
         if epoch % 5 == 0 or (did_validate and no_improvement == 0):
             fig, ax = plt.subplots(nrows=2, ncols=3, figsize=(15, 8))
@@ -655,6 +650,15 @@ def main():
             plt.savefig(spt.path_saved_model + 'learning_curve.png')
             plt.close('all')
         print("(""epoch", epoch, ")", "Training Loss", t_loss_epoch, "Validation Loss", v_loss_epoch)
+
+        # ---- Per-epoch wall-time row for the speed benchmark ----
+        # train_seconds/val_seconds isolate compute; epoch_total_seconds is the full
+        # epoch incl. plotting/logging/checkpointing (captures the plotting removal).
+        epoch_total_seconds = time.time() - _t_epoch_start
+        with open(timing_csv_path, 'a') as tf:
+            tf.write(f'{epoch},{train_seconds:.4f},{val_seconds:.4f},{epoch_total_seconds:.4f},'
+                     f'{train_batch_count},{val_batch_count},'
+                     f'{int(use_amp)},{int(_ALLOW_TF32)},{int(cudnn_benchmark)}\n')
         epoch+=1
     end = time.time()
     print("...Done Training...")

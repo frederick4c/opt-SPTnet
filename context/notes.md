@@ -405,7 +405,10 @@ do not belong in the report or source comments.
   on the regression head). Honest "targeted adaptation with a transfer cost",
   not a uniformly better model.
 
-- The 12x speed claim currently has NO committed in-repo evidence. The benchmark
+- [SUPERSEDED 2026-06-15 — see the "benchmark audit + rebuilt harness" entry
+  below: the "12x" is an artifact (~4.2x is the honest per-iteration figure), and
+  DataLoader workers are NOT a differentiator since they exist in both repos.]
+  The 12x speed claim currently has NO committed in-repo evidence. The benchmark
   harness exists (`slurm/train_sptnet_benchmark_csd3.slurm`): it runs
   `sptnet-train` under `/usr/bin/time -v`, parses the script's "Training takes N
   s" line into `training_seconds`, and records total wall time and a
@@ -417,3 +420,51 @@ do not belong in the report or source comments.
   workers/pinned memory/persistent workers, removed per-epoch plotting/debug,
   single-pass (T,H,W) inference, flat ConcatDataset). Repeat a few times and
   report mean/spread; state the exact comparison conditions in Methods.
+
+## 2026-06-15: benchmark audit + rebuilt statistically-backed harness
+
+- AUDIT of the committed runs under `experiments/benchmarks/`: the "12x" was an
+  artifact and is not defensible.
+  - `standard_new` (opt) DIVERGED to NaN: no grad-clip in that run, first NaN at
+    batch 199 of epoch 1, 3297 skipped batches, training-loss components 0.0 from
+    epoch 2 and validation frozen at 1.9208. Early-stopping then quit at 8 epochs.
+    It is not a valid trained model and must not be used as evidence.
+  - `standard_old` is healthy (22 epochs, v_loss 1.61 -> 1.17).
+  - The "12x" = training_seconds 10585/852, but that divides totals over DIFFERENT
+    epoch counts (22 vs 8) caused by the broken new run early-stopping. Not
+    like-for-like.
+  - Honest signal = per-iteration throughput: both healthy optimized runs sit at
+    ~4.9 it/s vs old ~1.15 it/s => ~4.2x. `sptnet_final_30293619.out` (healthy,
+    full TrainData=100k samples, grad-clip 1.0, 4.88 it/s) corroborates this but
+    is NOT a clean head-to-head with standard_old (10x more data, different loss
+    config), so it supports the per-iteration figure only.
+  - DataLoader workers/pin_memory/persistent_workers are ALREADY in BOTH repos
+    (`src/sptnet/data/loaders.py`; `../SPTnet/SPTnet_toolbox.py`), so the speedup
+    isolates compute (AMP/TF32/cudnn.benchmark) + removed per-epoch plotting, not
+    data loading.
+
+- REBUILT HARNESS (committed this repo):
+  - `src/sptnet/training/cli.py`: writes per-run `epoch_timing.csv`
+    (`epoch,train_seconds,val_seconds,n_train_batches,n_val_batches,amp,tf32,cudnn_benchmark`,
+    timed with `torch.cuda.synchronize()` around train and val passes), plus
+    env-gated toggles `SPT_DISABLE_AMP`, `SPT_DISABLE_TF32`, `SPT_CUDNN_BENCHMARK`
+    (defaults preserve normal behaviour). Verified: TF32 toggle flips the torch
+    backend at import; `pytest` green.
+  - `slurm/train_sptnet_benchmark_csd3.slurm`: `SPT_SYSTEM=old|new` switch,
+    `#SBATCH --array` per-run dirs (`<RUN_NAME>/run_NN/`), toggle pass-through,
+    benchmark defaults (max-epochs 4, patience 99, grad-clip 1.0, max_files 100).
+  - `experiments/benchmarks/analyze_benchmarks.py`: hierarchical bootstrap
+    (resample runs -> epochs, drop epoch 1 warmup), emits `results/summary.csv`,
+    `results/summary.md` (headline old/new speedup + 95% CI + decomposition), and
+    `results/per_epoch_times.png`. Smoke-tested on synthetic data.
+  - `experiments/benchmarks/README.md`: full protocol, run matrix, submit
+    commands, and the old-script patch instructions.
+
+- REMAINING (on CSD3): apply the same per-epoch `epoch_timing.csv` emitter +
+  `SPT_DISABLE_PLOT` toggle to `../SPTnet/SPTnet_training_old_cli.py` (the old
+  repo and part of the data live on CSD3; a Codex prompt with the exact edits was
+  handed off). Then submit K=10 headline arrays (`new_full`, `old`) and K=3
+  decomposition arrays (`new_no_amp`, `new_no_tf32`, `new_no_cudnn_bench`,
+  `old_no_plot`), run the analyzer, and commit `results/` + per-run
+  `epoch_timing.csv`/`*_metrics.txt`. Point BOTH systems at the SAME data files
+  (absolute paths) since data is split across the two repos.

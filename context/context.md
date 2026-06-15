@@ -9,7 +9,7 @@ at `report/main.tex`. Code changes should be made with the report context in
 mind: the repository supports reproducible training, inference, evaluation,
 data generation, and extensions of SPTnet.
 
-## Report focus (decided 2026-06-10)
+## Report focus (decided 2026-06-10; benchmark corrected 2026-06-15)
 
 The MAIN contribution of the report is now (1) the ~4.2x training-speed
 improvement of `opt-SPTnet` over the original `../SPTnet`, and (2) the
@@ -17,6 +17,13 @@ refactoring of the original MATLAB-dependent script collection into an
 installable, tested, documented Python package with command-line interfaces.
 Together these are a reproducibility-and-usability story: the system is faster,
 license-free (MATLAB/DIPimage removed), and usable by independent researchers.
+
+The ~4.2x figure replaces the earlier "~12x", which was an artifact: it divided
+total `training_seconds` across two runs with different epoch counts (the new
+run had diverged to NaN and early-stopped). The defensible, like-for-like figure
+is a per-epoch / per-iteration speedup (optimized ~4.9 it/s vs original ~1.15
+it/s), to be reported with a bootstrap CI once the rebuilt benchmark harness has
+been run on CSD3. See `context/plan.md` step 1 and the 2026-06-15 notes entry.
 
 The diffusion-loss experiments are NOT the headline. They become a secondary
 "critical evaluation" chapter whose value is methodological honesty: the

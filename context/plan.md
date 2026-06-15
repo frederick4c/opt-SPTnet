@@ -29,16 +29,41 @@ explicit decision to.
 
 ## Next steps (consolidation, ordered)
 
-1. Substantiate the 4x speed claim with a committed, controlled benchmark. This
-   is the report's headline and currently has NO in-repo evidence. Run the
-   original `../SPTnet` training and `opt-SPTnet` (`slurm/train_sptnet_benchmark_csd3.slurm`)
-   on the SAME data, SAME epochs, SAME hardware (CSD3 Ampere), capture
-   `training_seconds` / total wall time, and commit a small results table
-   (e.g. `experiments/benchmarks/` CSV + the SLURM `*_metrics.txt`). Decompose
-   where the speedup comes from (vectorised normalisation, AMP/TF32, DataLoader
-   workers, removed per-epoch plotting/debug, single-pass dimension inference,
-   flat ConcatDataset) so the number is explained, not just asserted. State the
-   exact comparison conditions in Methods so it is reproducible.
+1. Substantiate the ~4.2x speed claim with a committed, controlled, BOOTSTRAPPED
+   benchmark. The harness was rebuilt 2026-06-15 (see the 2026-06-15 notes entry)
+   and is in place; what remains is running it on CSD3 and committing results.
+   - Metric: steady-state TRAINING seconds per epoch (epoch 1 dropped as warmup;
+     validation timed separately and excluded). This removes the early-stopping /
+     epoch-count confound that produced the bogus "12x".
+   - Fixed identical workload for old and new: same data subset, batch 16,
+     query 20, lr 1e-4, max_dc 0.5, `--max-epochs 4` (old hardcodes patience 6 so
+     4 epochs always run; new uses `--patience 99 --grad-clip 1.0`). CSD3 Ampere,
+     1 GPU, `SPT_NUM_WORKERS=2`.
+   - Repeats: K=10 independent SLURM array tasks per system → hierarchical
+     bootstrap (resample runs -> epochs) for the speedup ratio + 95% CI.
+   - Decomposition: K=3 each with one optimization disabled — `new_no_amp`
+     (`SPT_DISABLE_AMP=1`), `new_no_tf32` (`SPT_DISABLE_TF32=1`),
+     `new_no_cudnn_bench` (`SPT_CUDNN_BENCHMARK=0`), and `old_no_plot`
+     (`SPT_DISABLE_PLOT=1`). NOTE: DataLoader workers are already in BOTH repos,
+     so this isolates compute (AMP/TF32/cudnn) + removed plotting, not data
+     loading; report data-loading/startup gains separately from
+     `startup_plus_data_loading_seconds`.
+   - Tooling (committed): instrumented `src/sptnet/training/cli.py` (per-epoch
+     `epoch_timing.csv` + the env toggles), generalised
+     `slurm/train_sptnet_benchmark_csd3.slurm` (`SPT_SYSTEM=old|new`, job array,
+     per-run dirs), `experiments/benchmarks/analyze_benchmarks.py` (bootstrap +
+     tables + plot), and `experiments/benchmarks/README.md` (full protocol +
+     submit commands).
+   - REMAINING: (a) apply the matching instrumentation to
+     `../SPTnet/SPTnet_training_old_cli.py` ON CSD3 (per-epoch `epoch_timing.csv`
+     + `SPT_DISABLE_PLOT` toggle; Codex prompt + steps in the benchmark README);
+     (b) submit the K=10 headline arrays and K=3 decomposition arrays; (c) run
+     the analyzer; (d) commit `results/` + per-run `epoch_timing.csv` /
+     `*_metrics.txt`. State the exact comparison conditions in Methods.
+   - The existing `experiments/benchmarks/standard_new` run is BROKEN (NaN
+     divergence, no grad-clip) and must not be used as evidence; `standard_old`
+     and `sptnet_final_30293619.out` are healthy and corroborate ~4.9 vs ~1.15
+     it/s but differ in data size/epochs so are not a clean head-to-head.
 
 2. Write the report around the headline. Fill, in order:
    - Methods: keep the drafted pipeline/architecture/loss; ADD an evaluation-
@@ -85,8 +110,10 @@ explicit decision to.
    `anchoredbm2026`, `anomalousnet2025`); fix the dangling "T" and "aend" typos
    in `main.tex`; confirm the title-page date.
 
-- MAIN TASKS NOW, IN ORDER: (1) COMMIT A CONTROLLED 4x BENCHMARK WITH A
-  DECOMPOSITION, (2) WRITE THE REPORT AROUND SPEED + PACKAGING WITH THE
+- MAIN TASKS NOW, IN ORDER: (1) RUN THE REBUILT BENCHMARK HARNESS ON CSD3 AND
+  COMMIT THE BOOTSTRAPPED ~4.2x RESULT + DECOMPOSITION (harness is built; remaining
+  work is the old-script patch on CSD3, the SLURM arrays, and the analysis),
+  (2) WRITE THE REPORT AROUND SPEED + PACKAGING WITH THE
   REPRODUCTION AND CORRECTED-EVALUATION AS THE SECONDARY CHAPTER, (3) MAKE THE
   REPO REPRODUCIBLE/COHESIVE FROM A CLEAN CHECKOUT, (4) SCOPE REAL-DATA AND THE
   TEACHER HONESTLY, (5) POLISH.
@@ -103,6 +130,7 @@ explicit decision to.
   than undermines the thesis? Frame as scientific rigor: a faithful reproduction
   plus an honest evaluation that corrects a misleading metric and locates the
   real limitation. This is a contribution, not a failure.
-- Is any statistical testing needed? For the speed claim, repeat the benchmark a
-  few times and report mean/spread. The diffusion rankings are single-seed and
-  must not be presented as significant.
+- Is any statistical testing needed? For the speed claim this is now handled: the
+  harness repeats each config K=10 times and `analyze_benchmarks.py` reports the
+  speedup ratio with a 95% hierarchical-bootstrap CI (resample runs -> epochs).
+  The diffusion rankings are single-seed and must not be presented as significant.
