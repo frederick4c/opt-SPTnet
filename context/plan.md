@@ -29,41 +29,42 @@ explicit decision to.
 
 ## Next steps (consolidation, ordered)
 
-1. Substantiate the ~4.2x speed claim with a committed, controlled, BOOTSTRAPPED
-   benchmark. The harness was rebuilt 2026-06-15 (see the 2026-06-15 notes entry)
-   and is in place; what remains is running it on CSD3 and committing results.
-   - Metric: steady-state TRAINING seconds per epoch (epoch 1 dropped as warmup;
-     validation timed separately and excluded). This removes the early-stopping /
-     epoch-count confound that produced the bogus "12x".
-   - Fixed identical workload for old and new: same data subset, batch 16,
-     query 20, lr 1e-4, max_dc 0.5, `--max-epochs 4` (old hardcodes patience 6 so
-     4 epochs always run; new uses `--patience 99 --grad-clip 1.0`). CSD3 Ampere,
-     1 GPU, `SPT_NUM_WORKERS=2`.
-   - Repeats: K=10 independent SLURM array tasks per system → hierarchical
-     bootstrap (resample runs -> epochs) for the speedup ratio + 95% CI.
-   - Decomposition: K=3 each with one optimization disabled — `new_no_amp`
-     (`SPT_DISABLE_AMP=1`), `new_no_tf32` (`SPT_DISABLE_TF32=1`),
-     `new_no_cudnn_bench` (`SPT_CUDNN_BENCHMARK=0`), and `old_no_plot`
-     (`SPT_DISABLE_PLOT=1`). NOTE: DataLoader workers are already in BOTH repos,
-     so this isolates compute (AMP/TF32/cudnn) + removed plotting, not data
-     loading; report data-loading/startup gains separately from
-     `startup_plus_data_loading_seconds`.
+1. [DONE 2026-06-15] Speed claim substantiated with a committed, controlled,
+   BOOTSTRAPPED benchmark. Headline result: **4.33x** steady-state per-epoch
+   TRAINING speedup, 95% CI **[4.28, 4.39]** (old 445.6 vs new 102.8 s/epoch).
+   End-to-end (full epoch incl. plotting/logging/ckpt) **4.40x [4.34, 4.46]**;
+   validation loop 5.35x. This replaces the bogus "12x" for good.
+   - Evidence: `experiments/benchmarks/new_fresh_good_runs/` and
+     `old_good_8_runs/` (8 runs each, not 10 — variance is tiny so 8 is ample;
+     per-run new train means [101.1, 103.8]s, old [437.8, 456.9]s). Analyzer
+     outputs in `experiments/benchmarks/results/summary_{train_seconds,
+     epoch_total_seconds}.{csv,md}` + `per_epoch_*.png`.
+   - Protocol: steady-state per-epoch training time, epoch 1 dropped as warmup,
+     4 epochs, identical fixed workload (100-file subset, 500 train/125 val
+     batches, batch 16, query 20, lr 1e-4, max_dc 0.5), CSD3 Ampere, workers=2,
+     new with default objective matching the original loss. Hierarchical bootstrap
+     (resample runs -> epochs), 10k resamples. Methods benchmark-protocol section
+     of `report/main.tex` already describes this.
+   - DECISION (2026-06-15): the decomposition arms (new_no_amp / new_no_tf32 /
+     new_no_cudnn_bench / old_no_plot) are NOT being run — judged low value for
+     the extra GPU time. So the ~4.33x is reported as a TOTAL speedup, not
+     attributed to AMP vs TF32 vs cudnn individually. The toggles/harness remain
+     in place if ever revisited. DataLoader workers are already in BOTH repos, so
+     the gain is compute + removed plotting/overhead, not data loading.
    - Tooling (committed): instrumented `src/sptnet/training/cli.py` (per-epoch
-     `epoch_timing.csv` + the env toggles), generalised
-     `slurm/train_sptnet_benchmark_csd3.slurm` (`SPT_SYSTEM=old|new`, job array,
-     per-run dirs), `experiments/benchmarks/analyze_benchmarks.py` (bootstrap +
-     tables + plot), and `experiments/benchmarks/README.md` (full protocol +
-     submit commands).
-   - REMAINING: (a) apply the matching instrumentation to
-     `../SPTnet/SPTnet_training_old_cli.py` ON CSD3 (per-epoch `epoch_timing.csv`
-     + `SPT_DISABLE_PLOT` toggle; Codex prompt + steps in the benchmark README);
-     (b) submit the K=10 headline arrays and K=3 decomposition arrays; (c) run
-     the analyzer; (d) commit `results/` + per-run `epoch_timing.csv` /
-     `*_metrics.txt`. State the exact comparison conditions in Methods.
-   - The existing `experiments/benchmarks/standard_new` run is BROKEN (NaN
-     divergence, no grad-clip) and must not be used as evidence; `standard_old`
-     and `sptnet_final_30293619.out` are healthy and corroborate ~4.9 vs ~1.15
-     it/s but differ in data size/epochs so are not a clean head-to-head.
+     `epoch_timing.csv` with train/val/epoch_total seconds + env toggles),
+     generalised `slurm/train_sptnet_benchmark_csd3.slurm`,
+     `experiments/benchmarks/analyze_benchmarks.py`, `README.md`.
+   - Caveats: the old `*_metrics.txt` env echo (disable_amp=0, cudnn_benchmark=1)
+     reflects SLURM defaults, NOT the old script — the `epoch_timing.csv` columns
+     (amp=0,tf32=0,cudnn_benchmark=0 for old) are authoritative. The old
+     `standard_new` run is BROKEN (NaN) and must not be used. The new model also
+     converges to a lower loss (input-normalization fix, see
+     `[[train-inference-normalization-fix]]`) — irrelevant to timing; report
+     separately, never as "Nx faster AND lower loss".
+   - REMAINING: write the Results "Runtime Optimisation" section around 4.33x
+     (table + per-epoch distribution figure); see the results outline in the
+     2026-06-15 notes entry.
 
 2. Write the report around the headline. Fill, in order:
    - Methods: keep the drafted pipeline/architecture/loss; ADD an evaluation-
@@ -110,10 +111,9 @@ explicit decision to.
    `anchoredbm2026`, `anomalousnet2025`); fix the dangling "T" and "aend" typos
    in `main.tex`; confirm the title-page date.
 
-- MAIN TASKS NOW, IN ORDER: (1) RUN THE REBUILT BENCHMARK HARNESS ON CSD3 AND
-  COMMIT THE BOOTSTRAPPED ~4.2x RESULT + DECOMPOSITION (harness is built; remaining
-  work is the old-script patch on CSD3, the SLURM arrays, and the analysis),
-  (2) WRITE THE REPORT AROUND SPEED + PACKAGING WITH THE
+- MAIN TASKS NOW, IN ORDER: (1) [DONE] benchmark run + analysed (4.33x, see
+  above); now WRITE the Results "Runtime Optimisation" section around it,
+  (2) WRITE THE REST OF THE REPORT AROUND SPEED + PACKAGING WITH THE
   REPRODUCTION AND CORRECTED-EVALUATION AS THE SECONDARY CHAPTER, (3) MAKE THE
   REPO REPRODUCIBLE/COHESIVE FROM A CLEAN CHECKOUT, (4) SCOPE REAL-DATA AND THE
   TEACHER HONESTLY, (5) POLISH.

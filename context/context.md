@@ -18,12 +18,14 @@ installable, tested, documented Python package with command-line interfaces.
 Together these are a reproducibility-and-usability story: the system is faster,
 license-free (MATLAB/DIPimage removed), and usable by independent researchers.
 
-The ~4.2x figure replaces the earlier "~12x", which was an artifact: it divided
-total `training_seconds` across two runs with different epoch counts (the new
-run had diverged to NaN and early-stopped). The defensible, like-for-like figure
-is a per-epoch / per-iteration speedup (optimized ~4.9 it/s vs original ~1.15
-it/s), to be reported with a bootstrap CI once the rebuilt benchmark harness has
-been run on CSD3. See `context/plan.md` step 1 and the 2026-06-15 notes entry.
+This replaces the earlier "~12x", which was an artifact: it divided total
+`training_seconds` across two runs with different epoch counts (the new run had
+diverged to NaN and early-stopped). The defensible, like-for-like figure is now
+CONFIRMED (2026-06-15): a **4.33x** steady-state per-epoch training speedup,
+95% CI [4.28, 4.39] (8 runs each, hierarchical bootstrap; end-to-end 4.40x).
+Evidence in `experiments/benchmarks/{new_fresh_good_runs,old_good_8_runs}/` and
+`results/`. The per-optimization decomposition was deliberately NOT run. See
+`context/plan.md` step 1 and the 2026-06-15 notes entries.
 
 The diffusion-loss experiments are NOT the headline. They become a secondary
 "critical evaluation" chapter whose value is methodological honesty: the

@@ -468,3 +468,55 @@ do not belong in the report or source comments.
   `old_no_plot`), run the analyzer, and commit `results/` + per-run
   `epoch_timing.csv`/`*_metrics.txt`. Point BOTH systems at the SAME data files
   (absolute paths) since data is split across the two repos.
+
+## 2026-06-15: benchmark RESULTS (4.33x confirmed) + decomposition dropped
+
+- Ran the headline arms on CSD3 (8 runs each, not 10 — variance is tiny, 8 is
+  ample). Results committed under `experiments/benchmarks/new_fresh_good_runs/`
+  and `old_good_8_runs/` (per-run `run_NN/epoch_timing.csv` + `*_metrics.txt` +
+  logs), analysed by `analyze_benchmarks.py` into
+  `experiments/benchmarks/results/summary_{train_seconds,epoch_total_seconds}.{csv,md}`
+  and `per_epoch_*.png`. 4 epochs/run, epoch 1 dropped as warmup => 24 steady
+  epochs/system; hierarchical bootstrap, 10k resamples.
+- Headline (steady-state per-epoch TRAINING time): new 102.8 s/epoch vs old
+  445.6 => **4.33x, 95% CI [4.28, 4.39]**.
+- End-to-end (`epoch_total_seconds`, incl. plotting/logging/checkpointing):
+  new 116.3 vs old 511.7 => 4.40x [4.34, 4.46]. Validation loop: 5.35x.
+  Whole-loop `training_seconds` from metrics corroborates (~475 vs ~2022).
+- Very tight per-run spread: new train per-run means [101.1, 103.8]s, old
+  [437.8, 456.9]s. Warmup epoch 1 modestly slower (new 107.6 vs 102.8 steady;
+  old 449.4 vs 445.5), confirming the drop.
+- DECISION: decomposition arms (new_no_amp/new_no_tf32/new_no_cudnn_bench/
+  old_no_plot) NOT run — judged low value for the GPU time. The 4.33x is a TOTAL
+  speedup; not attributed to AMP vs TF32 vs cudnn individually. Harness/toggles
+  remain if ever revisited.
+- Gotcha: the old `*_metrics.txt` echoes `disable_amp=0, cudnn_benchmark=1` —
+  those are SLURM env DEFAULTS, not the old script's behaviour. The
+  `epoch_timing.csv` columns are authoritative and correctly record
+  amp=0/tf32=0/cudnn_benchmark=0 for old.
+
+## 2026-06-15: Results section outline (Runtime Optimisation + the rest)
+
+Outline agreed for the report Results chapter (4 sections already stubbed in
+`report/main.tex`):
+
+1. Runtime Optimisation (centrepiece):
+   - Restate the benchmark protocol in one line (cross-ref Methods
+     `sec:benchmark-protocol`); state the fixed workload and that it's wall-time,
+     not convergence.
+   - Headline: 4.33x per-epoch training speedup [4.28, 4.39], table of new vs old
+     mean s/epoch (train, val, full-epoch) with CIs.
+   - Figure: `per_epoch_train_seconds.png` (per-config distribution) showing tight
+     within/between-run spread => the estimate is stable on 8 runs.
+   - Sentence on end-to-end 4.40x and validation 5.35x; note decomposition not run
+     so the number is total (attribute qualitatively to AMP/TF32/cudnn + removed
+     plotting, with workers already in both).
+   - Separate short paragraph: the input-normalization fix (train/inference
+     mismatch) => new converges to lower loss; explicitly NOT folded into the
+     speed number.
+2. Comparison to OG model (reproduction): three-model matched per-track
+   comparison (Original ti2 / dense-sparse / final), equivalence + shared high-D
+   compression; quantify agreement. (Source: diff_evals/final matched CSVs.)
+3. Mean/Variance sweeps: matched per-track D calibration across the mean sweep
+   (0.05-0.45) and range sweep (+/-0.01,0.05,0.15); slope/corr, high-D bias.
+4. (Optional) Stitching/real-data qualitative demo OR explicit out-of-scope note.
