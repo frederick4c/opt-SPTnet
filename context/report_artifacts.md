@@ -24,18 +24,23 @@ Status legend: ✅ present locally · ⬇️ on CSD3, copy down · 🔧 needs
 ## 1. Data / logs by report section
 
 ### A. Runtime benchmark (Results: Runtime optimisation — headline)
-- ✅ `experiments/benchmarks/standard_{new,old}/slurm_benchmark_*_metrics.txt`,
-  `*.log`, `trained_modeltraining_log.txt` — already in repo (tracked).
-- ✅ `experiments/benchmarks/standard_new/trained_modelloss_history.csv`.
-- ⬇️ **Repeated benchmark runs (2–3× each, old & new)** — needed for mean/spread
-  on the headline claim. Currently single-run only. (User uploading.)
-- 🔧 Optional ablation runs (AMP off, workers=0, plotting on) to decompose the
-  speedup into named sources.
+- ✅ **Repeated benchmark runs (8× each, old & new)** — DONE 2026-06-15. Evidence
+  in `experiments/benchmarks/{new_fresh_good_runs,old_good_8_runs}/` with analyzer
+  outputs in `experiments/benchmarks/results/` (`summary_*.{csv,md}`,
+  `per_epoch_*.png`). Harness: `experiments/benchmarks/analyze_benchmarks.py`.
+- ✅ Per-epoch `epoch_timing.csv` per run (train/val/epoch_total seconds + env
+  toggles) — the authoritative timing source.
+- ❌ Decomposition / ablation arms (no-AMP / no-TF32 / no-cudnn / old-no-plot)
+  DELIBERATELY NOT RUN (2026-06-15 decision) — speedup reported as a TOTAL. Do not
+  reintroduce as a to-do.
 
-Current single-run numbers (provisional, for `tab:benchmark`):
-training 10585 s → 852 s (12.4×); total wall 10781 s → 1105 s (9.8×); fixed
-startup + data-loading ≈ 200–250 s. NOTE: reconcile `context/context.md` which
-still says 4.2×.
+Settled numbers (for `tab:runtime-benchmark`, already in `main.tex`):
+steady-state per-epoch training 445.5 s → 102.8 s = **4.33× [4.28, 4.39]**
+(hierarchical bootstrap); validation 5.35×; full epoch 511.7 s → 116.3 s = 4.40×
+[4.34, 4.46]. The old "12.4×"/"9.8×"/"4.2×" figures are SUPERSEDED — see
+`[[benchmark-speedup-corrected]]`, `context/plan.md` step 1, and the 2026-06-15
+notes. The earlier `standard_{new,old}` single runs are provisional/`standard_new`
+is broken (NaN); do not cite them.
 
 ### B. Reproduction (Results: Reproduction & inherent high-D bias)
 - ✅ `diff_evals/final/comparison_plots/three_model_matched_{ranking,summary}.csv`.
@@ -75,27 +80,70 @@ To be saved into `report/figures/` (the rough plots under
 `diff_evals/**/comparison_plots/` are diagnostics, not report figures — redraw).
 
 ### Methods
-- **M1 Pipeline overview** — generate → train → infer → segment/stitch.
-  Fills TODO at `report/main.tex` pipeline-overview section.
-- **M2 SPTnet architecture** — backbone + dual 2D/3D transformer branches +
-  query heads. Fills TODO in the architecture section.
-- **M3 (optional) Synthetic data example** — a frame with GT trajectories
-  overlaid; illustrates PSF + Perlin background + Poisson noise.
+- **M1 Pipeline overview** — ✅ DONE:
+  generate → train → infer → segment/stitch.
+- **M2 SPTnet architecture** — ✅ DONE: (may need checking at end)
+  backbone + dual 2D/3D transformer branches + query heads.
+- **M3 Synthetic data reproduction** — ✅ DONE:
+  `report/figures/data_generation_comparison.pdf` (MATLAB original vs Python
+  render from the same tracks). Source: last cell of `notebooks/figs.ipynb`.
+  Optional extra: a frame with GT trajectories overlaid (PSF + Perlin + Poisson).
 
 ### Results
-- **R1 Runtime benchmark** — bar chart, training vs total-wall, original vs
-  opt-SPTnet (+ optional decomposition). Pairs with `tab:benchmark`. Awaits
-  repeated-run upload.
-- **R2 Reproduction calibration** — predicted vs true per-track D for the three
-  models; agreement + shared high-D compression. Source: `three_model_matched_*`.
-- **R3 Metric artifact** — old mean-target score vs oracle floor vs corrected
-  per-track error; the visual core of the honesty argument.
-- **R4 Detection bottleneck** — precision/recall + localisation RMSE across
-  models (why the gap isn't the diffusion head).
-- **R5 Fine-tune & transfer cost** — before/after on binned distribution +
-  calibration-slope collapse on sparse (forgetting). Source: `ft_matched_*` and
-  the forgetting CSV (item D).
-- **R6 Real-data overlay** — stitched tracks on the experimental movie
-  (qualitative end-to-end demo). Source: `RealData/full_model_ft/stitched_tracks.csv`.
+- **R1 Runtime benchmark** — ✅ DONE: per-epoch training-time distribution
+  (`report/figures/benchmark_per_epoch_train.pdf`), pairs with
+  `tab:runtime-benchmark`. No decomposition panel (not run).
+- ⚠️ **EVAL BUG (2026-06-17): R2 and R4 below are INVALID pending re-eval.** The
+  matched CSVs scored the (y,x) models (Original, Dense/sparse, Full) with
+  transposed coords; their recall/loc-RMSE/bias are artifacts. See
+  `context/rerun_matched_evals_csd3.md` + 2026-06-17 notes. Do NOT use R2/R4 until
+  the CSVs are regenerated; then rebuild both figures.
+- **R2 Reproduction bias** — ⚠️ REDO (Original/Full boxes invalid; FT box ok):
+  `report/figures/reproduction_bias.pdf` (binned mean±SEM signed bias D̂−D vs true D
+  + zero line; slope+recall in legend). REPORT MODELS = Original (`Original ti2`),
+  Full model (`Final full model`), Full model fine-tuned (`Final model FT`) — NOT
+  the old Original/Dense-sparse/Final trio. Source: `ft_matched_{tracks,ranking}.csv`
+  (has the FT model), cell in `notebooks/figs.ipynb`. NB: Original≈Full (repro), FT
+  much better ON ITS BINNED DISTRIBUTION (recall 0.92 vs ~0.28) — text must carry
+  the forgetting caveat (FT forgets on the general sparse distribution).
+- **R3 Metric artifact** — ❌ DROPPED as a figure (2026-06-16). The scatter was
+  weak/decision-irrelevant: on converged models only 3/28 points dip below the
+  oracle floor (25/28 above → it argues the OLD metric is mostly fine). The dramatic
+  below-floor cases were the collapsed scratch runs, now shelved. The metric
+  correction is already a METHODS point (\cref{sec:eval-protocol} defines the oracle
+  floor); make it in PROSE, optionally a tiny inline number/table, NOT a figure.
+- **R4 Detection bottleneck** — ⚠️ INVALID, REDO (Original/Full recall+loc-RMSE are
+  xy/yx artifacts; corrected, all models ~0.92 recall → the "bottleneck" disappears):
+  `report/figures/detection_bottleneck.pdf`
+  (2-panel: detection recall + localisation RMSE vs target D, mean sweep, 3 report
+  models). STRONG/decision-supporting: Original & Full overlap at recall ~0.3 /
+  loc_rmse ~0.15; Finetuned model recall ~0.92 / loc_rmse ~0.03. Shows the limit is
+  detection/localisation under distribution shift, not the diffusion head. Source:
+  `ft_matched_summary.csv` (half_width==0.05), cell in `figs.ipynb`.
+- **Fine-tune ablations** — ❌ DROPPED (2026-06-16). The 5 fine-tune variants are
+  near-indistinguishable (MAE_D ~0.033, recall ~0.92), so the bar chart showed 5
+  equal bars — no information. Make the "objective choice barely matters from a
+  pretrained start" point in PROSE if needed, not a figure.
+- **Variance sweep** — ✅ DONE: `report/figures/diffusion_variance.pdf` (single
+  panel, fine-tuned model at D=0.25: true vs predicted spread across half-widths
+  0.01/0.05/0.15; predicted spread ~fixed → over-disperses narrow, under-disperses
+  wide → follows the MEAN but not the VARIANCE). Mean-following deliberately NOT
+  re-plotted (already in `reproduction_bias.pdf`). Source: `ft_matched_summary.csv`,
+  cell in `figs.ipynb`.
+- **R5 Fine-tune & transfer cost** — 🔧 BLOCKED on data: needs the matched eval
+  REGENERATED on `diff_evals/forget/` (has `final_full`, `final_full_ft`, `gt` but
+  NO `*_matched_*` CSV). Not a plot-only task — must run the matched metric first.
+- **R6 Real-data** — ✅ MOSTLY DONE (annotated-frame demo + aggregate, NOT a
+  track-density map). Real-data section = (1) SUCCESS: `figures/ft_success.png`
+  (FT works on bright real data, returns H/D TrackMate doesn't); (2) LIMITATION on
+  dim KDEL: `figures/ft_fail.png` (illustrative single frame, FT boxes on flat
+  noise) + `figures/realdata_overdetection.pdf` (QUANTITATIVE backbone: FT median
+  806 detections/frame vs Dense/sparse 3 = ~270x across the whole KDEL movie; cell
+  in `figs.ipynb`). `pre_ft_real.png` is the non-FT/sparse model on KDEL (looser).
+  FRAMING: SNR/objectness-robustness limitation (FT over-detects high-confidence on
+  low-contrast data, not threshold-fixable), NOT forgetting; qualitative, no GT.
+  NO matched single FT-vs-nonFT frame exists (checked) — the ~270x AGGREGATE is the
+  cherry-pick-proof claim instead. Screenshots still need: scale bar, box-colour
+  legend, label red × as TrackMate. See [[realdata-ft-model-distribution-shift]].
 
 Tables scaffolded for the draft: benchmark (R1), three-model (R2), fine-tune (R5).

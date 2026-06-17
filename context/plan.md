@@ -118,6 +118,87 @@ explicit decision to.
   REPO REPRODUCIBLE/COHESIVE FROM A CLEAN CHECKOUT, (4) SCOPE REAL-DATA AND THE
   TEACHER HONESTLY, (5) POLISH.
 
+## Figure and appendix plan (set 2026-06-15)
+
+Planned figures/media (author's list): training-data screenshots, inference
+results, stitching output, an SPTnet architecture diagram, mean/variance sweep
+plots, real-data results, and possibly attached videos in the appendix.
+
+FONT: report figures should use Computer Modern Roman to match the report font
+(LaTeX default). In matplotlib set `text.usetex=True` with
+`font.serif=["Computer Modern Roman"]` (needs a LaTeX install; the working
+`figs.ipynb` data-generation cell does this), or fall back to the bundled `cmr10`
+font (`mathtext.fontset="cm"`) if usetex is unavailable. See
+`[[figures-computer-modern-font]]`.
+
+Mapping each report slot to a figure and its source artifact (every figure must
+trace to a committed artifact or notebook cell; PLOTS as vector PDF per
+`[[figures-as-pdf]]`, screenshots/videos raster is fine):
+
+METHODS FIGURES DONE 2026-06-16 (all three in `main.tex` + build clean):
+- Methods §Pipeline overview — DONE: `figures/pipeline_overview.pdf` (TikZ,
+  Computer Modern), horizontal generate→train→infer→segment/stitch with real
+  thumbnails (train_eg / example_curve / tile_overview / stitched_overview).
+- Methods §SPTnet architecture — DONE: `figures/architecture.png` (AI-generated,
+  accuracy-verified against the code; caption says "unchanged from Bi et al.").
+  Caveat: PNG raster + sans-serif labels (NOT Computer Modern) — accepted
+  trade-off. Old TikZ source `figures/architecture.tex` is now unused but kept.
+- Methods §Synthetic data generation — DONE: `figures/data_generation_comparison.pdf`
+  (MATLAB vs Python from same tracks; last cell of `notebooks/figs.ipynb`).
+  Optional extra still open: a frame with GT trajectories overlaid.
+- Results §Runtime Optimisation — DONE: benchmark table + per-epoch distribution
+  figure (`figures/benchmark_per_epoch_train.pdf`).
+RESULTS SECTION ORDER (reset 2026-06-16): (1) Runtime Optimisation, (2) Diffusion
+estimation: ablations, improvements and sweeps, (3) Comparison to the original
+model, (4) Real-data and stitching. Sweeps/ablations now come BEFORE the
+comparison.
+- Results §Diffusion estimation (ablations/improvements + sweeps) — DONE so far:
+  `figures/reproduction_bias.pdf` (signed per-track D bias box plot, three REPORT
+  models, source `ft_matched_*`); `figures/ablation_scratch_calibration.pdf`
+  (from-scratch ablations pred-vs-true D: Baseline & BCE-with-logits collapse to the
+  mean slope~0, Log H/D & H/D-off-matching recover slope~0.93; source
+  `scratch_matched_*`). SHELVED 2026-06-16: `ablation_scratch_calibration.pdf`
+  must NOT be used as-is — Baseline & BCE were CONVERGENCE FAILURES (v_loss flat
+  ~2.0 epoch 1->30), so their collapse/poor detection is dead-run artifact, not a
+  finding. See the 2026-06-16 notes entries. Use the FINETUNE ablations (all
+  converged) for the loss-config story instead. Still needed: mean/variance SWEEP
+  figure + table, metric-artifact panel (R3), detection-bottleneck (R4). CAVEAT in
+  text: FT gains are in-distribution; forgetting on the general sparse set.
+- Results §Comparison to original model — reproduction (Original ≈ Full model);
+  the equivalence is already visible in `reproduction_bias.pdf`. Still needed: an
+  agreement table quantifying closeness to the original.
+- Results §Real-data and stitching — inference results, stitching output, real
+  data results, optional videos (author's list); shorter section.
+
+NEXT UP (Results figures, in suggested order — all need redrawing as vector PDF
+with CM font from the matched CSVs; the `diff_evals/**/comparison_plots/*.png` are
+diagnostics, not report figures):
+- DONE: R2 bias box plot `figures/reproduction_bias.pdf` (now serves the §Diffusion
+  estimation section; three report models Original/Full/Full-FT from `ft_matched_*`).
+1. Sweep figure + table for §Diffusion estimation: per-track D calibration/bias
+   across the mean sweep (0.05-0.45) and range sweep (±0.01,0.05,0.15). Source:
+   `final_mean_sweep_comparison`/`final_range_sweep_comparison` data.
+2. R3 metric-artifact + R4 detection-bottleneck (§Diffusion estimation) — share the
+   matched-eval data; R4 turns the detection-bottleneck finding into a figure.
+3. Agreement table for §Comparison to original model (Original ≈ Full model).
+4. R5 fine-tune & transfer cost (needs the forgetting CSV regenerated, artifacts
+   item D) and R6 real-data overlay last.
+
+Other figures to CONSIDER adding (not yet on the author's list):
+- Detection precision/recall vs condition (for the sweeps / critical-evaluation
+  section): directly visualises the detection-bottleneck-under-distribution-shift
+  finding, which is currently argued in prose only. Source data exists in the
+  matched-eval CSVs.
+- A metric-comparison panel for the corrected-evaluation point (mean-target vs
+  matched per-track, with the oracle floor marked): makes the "old metric rewarded
+  shrinkage / one best sat below the floor" argument visual.
+- Loss/convergence curve (new vs old) IF the normalisation-fix lower-loss claim is
+  made in Results — gives it a figure rather than a bare sentence. Keep separate
+  from the speed figure.
+- Videos belong in the Appendix (Additional Figures); reference them from the
+  real-data section. Confirm submission format allows attached media; if not,
+  use still frames + a repo link.
+
 ## Open questions (for the write-up, not new experiments)
 
 - What exactly accounts for the 4x speedup, and in what proportions? The

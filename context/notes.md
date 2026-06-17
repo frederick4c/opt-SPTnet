@@ -520,3 +520,70 @@ Outline agreed for the report Results chapter (4 sections already stubbed in
 3. Mean/Variance sweeps: matched per-track D calibration across the mean sweep
    (0.05-0.45) and range sweep (+/-0.01,0.05,0.15); slope/corr, high-D bias.
 4. (Optional) Stitching/real-data qualitative demo OR explicit out-of-scope note.
+
+## 2026-06-16: scratch ablations SHELVED — Baseline/BCE were convergence failures
+
+Investigated whether the from-scratch ablations (Baseline, BCE-with-logits, Log
+H/D, H/D-off-matching) could evidence the H/D-in-matching "poisoning" mechanism.
+They cannot, as currently run:
+- BCE thresholding artifact RULED OUT: `sptnet-inference` builds SPTnet without
+  `return_objectness_logits=True` (`src/sptnet/inference/cli.py`), default is
+  False, so `SPTnet.forward` applies sigmoid before saving objectness
+  (`src/sptnet/models/sptnet.py`). Saved obj is probability-space; the 0.5 gate is
+  correct.
+- LOSS CURVES show Baseline and BCE STALLED: v_loss 2.039->2.040 (Baseline),
+  2.021->2.022 (BCE), essentially flat epoch 1->30. Log H/D converged
+  0.788->0.241; H/D-off-match 0.718->0.223. So Baseline/BCE never trained; their
+  recall ~0.10-0.12 and "predict-the-mean" D (slope 0) are symptoms of dead runs,
+  NOT a clean diffusion/matching finding.
+- Single-seed: can't separate "config reliably kills from-scratch training"
+  (consistent with the matching-poisoning mechanism) from "this seed died". A real
+  claim would need >=3 seeds per config, all four configs, matched protocol.
+- DECISION (2026-06-16): SHELVE the from-scratch ablation. Not load-bearing — the
+  FINETUNE ablations all converged (mae ~0.033) and are the fair loss-config
+  comparison. `figures/ablation_scratch_calibration.pdf` must NOT go in as-is (it
+  implies a finding that is really two dead runs). Revisit only with a multi-seed
+  sweep if the from-scratch claim is specifically wanted; otherwise drop/appendix.
+
+## 2026-06-17: CRITICAL — matched diffusion evals contaminated by xy/yx bug
+
+The matched eval (`notebooks/diffusion_eval_matched.py`, `load_prediction`) reads
+`estimation_xy` with NO per-model coordinate-convention handling. Models split:
+(y,x) = Original ti2, Dense/sparse, Final full model (NEED x/y swap); (x,y) =
+Final model FT, scratch ablations (correct as-is). The (y,x) models were scored
+with axes transposed -> matching broke -> spuriously low recall (~0.25 vs true
+~0.93), huge loc-RMSE, and wrong pred->particle pairings (so their per-track D/H
+error, slope, corr are also garbage). Verified by recall flipping 0.25<->0.93 with
+`pred_xy[...,::-1]`, per model, on `D_mean_0p25_pm_0p05`.
+
+WRONG CSVs: `ft_matched_*` (Original/Dense/Full rows; FT ok), `three_model_matched_*`
+(all), `final_matched_*` (Full), `forget_matched_*` (Full row; I generated it
+2026-06-17 with the bug). CORRECT: `scratch_matched_*` (confirmed — swap makes
+Baseline/BCE recall LOWER, so the convergence-failure shelving stands).
+ARTIFACT findings that vanish once fixed: (1) the "detection bottleneck"
+(Original/Full ~0.3 recall vs FT ~0.92) — corrected all ~0.92; (2) "forgetting"
+(FT 0.95 vs Full 0.22 on the general/sparse `forget` set) — corrected both ~0.95.
+Reproduction (Original≈Full) should STRENGTHEN.
+FIGURES TO REDO after re-eval: `detection_bottleneck.pdf` (R4, invalid),
+`reproduction_bias.pdf` (R2, Original/Full boxes invalid). FINE: `diffusion_variance`
+(FT only), `realdata_overdetection` (counts, convention-independent), methods/runtime.
+Re-eval handoff written for CSD3 Codex: `context/rerun_matched_evals_csd3.md`
+(file structure differs / split across 2 repos on CSD3, so it must find paths).
+
+## 2026-06-16: diffusion-chapter story spine (what's needed)
+
+Section order: Runtime -> Diffusion estimation (attempts/diagnostics/justification)
+-> Comparison to original (reproduction + genuine improvement) -> Real data.
+Required pieces for the diffusion + comparison story, in narrative order:
+1. ATTEMPTS TO IMPROVE: finetune-ablation comparison (BCE, log H/D, H/D-off-match,
+   etc.; `finetune_matched_*`, all converged) — what was tried + justify the final
+   config. [figure/table TODO]
+2. DIAGNOSTIC/JUSTIFICATION (pivot): metric-artifact (R3) — old mae-to-condition-
+   mean vs oracle floor vs corrected per-track; shows earlier "improvements" were
+   variance-shrinkage artifacts. Source: summary CSV cols `mae_to_target_OLD`,
+   `oracle_floor`, `per_track_mae_D`. [figure TODO — pivotal]
+3. WHERE IT REALLY STANDS: mean/variance sweeps (corrected metric) + detection-
+   bottleneck (R4: precision/recall + loc_rmse under distribution shift). [TODO]
+4. COMPARISON shows improvement: `reproduction_bias.pdf` (DONE — Original≈Full
+   reproduction + fine-tuned model genuinely better on binned conditions) + an
+   agreement table; carry the forgetting caveat for the fine-tuned model.
