@@ -1,3 +1,13 @@
+# [OBSOLETE 2026-06-17 — DO NOT USE]
+
+This was superseded: the bug is READ-side and all inference h5 are available
+locally, so it was fixed locally via `notebooks/reeval_matched_fixed.py` (per-model
+auto-detected x/y swap, re-run on the existing h5). No CSD3 rerun or rsync was
+needed. Kept only as a record of the diagnosis. See the 2026-06-17 RESOLVED entry
+in `context/notes.md`.
+
+---
+
 # Task for Codex (CSD3): re-run the contaminated matched diffusion evals
 
 You are running on CSD3, where this project's data and code are **split across two

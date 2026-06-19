@@ -570,6 +570,94 @@ FIGURES TO REDO after re-eval: `detection_bottleneck.pdf` (R4, invalid),
 Re-eval handoff written for CSD3 Codex: `context/rerun_matched_evals_csd3.md`
 (file structure differs / split across 2 repos on CSD3, so it must find paths).
 
+RESOLVED 2026-06-17 — FIXED LOCALLY, no CSD3/rsync needed. The bug is read-side and
+the inference h5 are all local, so `notebooks/reeval_matched_fixed.py` re-ran the
+matched eval locally with per-model AUTO-DETECTED x/y swap and overwrote
+`ft_matched_*` + `three_model_matched_*`; forget recomputed with the Full-model swap.
+`context/rerun_matched_evals_csd3.md` is now OBSOLETE. CORRECTED RESULTS:
+- All 4 models detect ~0.93-0.96 recall, loc-RMSE ~0.02-0.035 -> the "DETECTION
+  BOTTLENECK" (R4) is DEAD (was the artifact). DROP/restate R4.
+- Reproduction HOLDS: Original/Dense/Full mae ~0.057-0.060, slope ~0.73-0.80; FT
+  better on binned (mae 0.037, slope 0.84). R2 reproduction_bias regenerated & valid.
+- REAL forgetting is CALIBRATION, not recall: on the general/sparse set both detect
+  ~0.95 but FT slope COLLAPSES 0.84->0.27 while Full stays 0.73->0.72. New figure
+  `transfer_cost.pdf` (R5) shows this crossover. This is the genuine transfer cost.
+- Net: bug fix KILLED the detection-bottleneck + recall-forgetting claims (artifacts),
+  STRENGTHENED reproduction, and reframed forgetting as calibration over-specialisation.
+- CAVEAT: canonical `diffusion_eval_matched.py:load_prediction` still has the latent
+  bug; always use `reeval_matched_fixed.py` (or patch the loader) for re-evals.
+
+## 2026-06-19: normalization memory was wrong — no "fix" was introduced
+
+The earlier memory/notes entry claiming opt-SPTnet fixed a train/inference
+normalization mismatch is INCORRECT. Confirmed by reading the source:
+
+- `SPTnet_training_old_cli.py` (the "old" benchmark script) normalises in BOTH
+  train_step (lines 195-198) and val_step (lines 214-217): per-sample min-max
+  loop, identical semantics to the new code.
+- `SPTnet_training_cli.py` (the intermediate CSD3 script) has the same operation
+  vectorised (lines 296-300, 341-345).
+- opt-SPTnet `normalize_training_inputs` (`src/sptnet/training/trainer.py:6-12`)
+  is the same vectorised form.
+
+All three are mathematically equivalent per-sample min-max to [0,1]. The
+vectorisation is a performance change only; it is NOT a correctness fix and should
+NOT be cited as a contribution in the report.
+
+Any "lower validation loss" observation between old and new systems is NOT due to
+normalization. Possible causes: (1) AMP/TF32 numerics slightly accelerating
+convergence, (2) minor loss-scaling differences between the old inline
+`hungarian_matched_loss` and the new imported version (structurally equivalent for
+default config; main functional difference is that the old no-tracks branch
+computes BCE of GT against zero — always 0 — rather than BCE of predictions, so
+does not penalise false positives on empty frames), (3) any confounded run
+comparison (different data size, epochs, or config).
+
+## 2026-06-19: switching baseline — new inference runs needed
+
+Decision: replace the Original ti2 comparison (trained on 200k+ different videos)
+with a model trained on the SAME 100k videos using the old unmodified training
+script (`SPTnet_training_old_cli.py`). The CSD3 model (same 100k data, epoch-17
+checkpoint) is available and adequate — the loss and normalisation are equivalent
+to a fully clean baseline (see above); only AMP/TF32 numerics differ.
+
+Both the CSD3 baseline model and the Final full model (opt-SPTnet) used the epoch-17
+checkpoint. Getting both loss-curve CSVs (train/val loss per epoch) is USEFUL:
+- Directly supports the "no quality loss" claim: both converge to similar val
+  loss by epoch 17.
+- Combined with epoch_timing.csv from the benchmark, enables a "val loss vs
+  wall-clock time" figure showing opt-SPTnet reaches the same quality 4.33x
+  faster — a strong, direct visualisation of the headline contribution.
+- Low effort: just copy the CSV files from CSD3; no re-training or re-inference.
+
+Inference runs to submit on CSD3 with the baseline model checkpoint:
+
+A. Diffusion conditions (7 × all files, SPT_HDF5_CLIP_INDEX=0):
+   Source: same binned condition h5 files used for the Final full model inference.
+   Output root: diff_evals/baseline/  (mirror of diff_evals/final/diff_evals/final_full_model/)
+   Conditions:
+     D_mean_0p05_pm_0p05    (~100 files)
+     D_mean_0p15_pm_0p05    (~100 files)
+     D_mean_0p25_pm_0p01    (~20 files)
+     D_mean_0p25_pm_0p05    (~20 files)
+     D_mean_0p25_pm_0p15    (~20 files)
+     D_mean_0p35_pm_0p05    (~20 files)
+     D_mean_0p45_pm_0p05    (~20 files)
+   Use inference_diff_eval_csd3.slurm with:
+     SPT_MODEL_PATH=<path to baseline epoch-17 checkpoint>
+     SPT_DIFF_EVAL_INPUT_ROOT=<path to>/diff_evals/baseline
+
+B. Forget / general-sparse set (28 files, SPT_HDF5_CLIP_INDEX=0):
+   Source: same files used for diff_evals/forget/final_full/inference/
+   Output root: diff_evals/forget/baseline/
+   Use inference_sptnet_csd3.slurm or the same diff_eval script pointed at
+   the forget gt directory.
+
+After inference: run reeval_matched_fixed.py adding the baseline model alongside
+the Final full model and FT model. Replace Original ti2 in ft_matched_* and
+three_model_matched_* with baseline. Regenerate reproduction_bias.pdf (R2) and
+transfer_cost.pdf (R5) from the updated CSVs.
+
 ## 2026-06-16: diffusion-chapter story spine (what's needed)
 
 Section order: Runtime -> Diffusion estimation (attempts/diagnostics/justification)

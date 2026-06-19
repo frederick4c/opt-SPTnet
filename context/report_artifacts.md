@@ -93,33 +93,45 @@ To be saved into `report/figures/` (the rough plots under
 - **R1 Runtime benchmark** — ✅ DONE: per-epoch training-time distribution
   (`report/figures/benchmark_per_epoch_train.pdf`), pairs with
   `tab:runtime-benchmark`. No decomposition panel (not run).
-- ⚠️ **EVAL BUG (2026-06-17): R2 and R4 below are INVALID pending re-eval.** The
-  matched CSVs scored the (y,x) models (Original, Dense/sparse, Full) with
-  transposed coords; their recall/loc-RMSE/bias are artifacts. See
-  `context/rerun_matched_evals_csd3.md` + 2026-06-17 notes. Do NOT use R2/R4 until
-  the CSVs are regenerated; then rebuild both figures.
-- **R2 Reproduction bias** — ⚠️ REDO (Original/Full boxes invalid; FT box ok):
+- ✅ **EVAL BUG FIXED LOCALLY (2026-06-17).** The xy/yx bug was a READ-side issue
+  (inference h5 are fine), so it was fixed locally — NO CSD3 rerun / NO rsync needed.
+  `notebooks/reeval_matched_fixed.py` re-runs the matched eval on the existing local
+  h5 with per-model AUTO-DETECTED x/y swap, overwriting `ft_matched_*` and
+  `three_model_matched_*`; the forget CSV was recomputed with the Full-model swap.
+  CORRECTED HEADLINE: all four models detect ~0.93-0.96 recall (no "bottleneck");
+  reproduction holds (Original/Dense/Full mae ~0.057-0.060, slope ~0.73-0.80); FT
+  better on binned (mae 0.037, slope 0.84). `context/rerun_matched_evals_csd3.md` is
+  now OBSOLETE (kept only for reference). NOTE: canonical `diffusion_eval_matched.py`
+  `load_prediction` STILL has the latent bug — always use `reeval_matched_fixed.py`
+  (or patch the loader) for future re-evals.
+- **R2 Reproduction bias** — ✅ DONE (regenerated on corrected CSVs):
   `report/figures/reproduction_bias.pdf` (binned mean±SEM signed bias D̂−D vs true D
   + zero line; slope+recall in legend). REPORT MODELS = Original (`Original ti2`),
   Full model (`Final full model`), Full model fine-tuned (`Final model FT`) — NOT
   the old Original/Dense-sparse/Final trio. Source: `ft_matched_{tracks,ranking}.csv`
-  (has the FT model), cell in `notebooks/figs.ipynb`. NB: Original≈Full (repro), FT
-  much better ON ITS BINNED DISTRIBUTION (recall 0.92 vs ~0.28) — text must carry
-  the forgetting caveat (FT forgets on the general sparse distribution).
+  (has the FT model), cell in `notebooks/figs.ipynb`. CORRECTED 2026-06-17: all
+  detect ~0.93-0.95 recall (the old 0.28 was the xy/yx artifact); Original≈Full
+  (repro) with shared high-D compression; FT better-calibrated on binned (slope 0.84
+  vs ~0.73). The forgetting is CALIBRATION on the general set, shown by R5 transfer
+  cost — not a detection/recall effect.
 - **R3 Metric artifact** — ❌ DROPPED as a figure (2026-06-16). The scatter was
   weak/decision-irrelevant: on converged models only 3/28 points dip below the
   oracle floor (25/28 above → it argues the OLD metric is mostly fine). The dramatic
   below-floor cases were the collapsed scratch runs, now shelved. The metric
   correction is already a METHODS point (\cref{sec:eval-protocol} defines the oracle
   floor); make it in PROSE, optionally a tiny inline number/table, NOT a figure.
-- **R4 Detection bottleneck** — ⚠️ INVALID, REDO (Original/Full recall+loc-RMSE are
-  xy/yx artifacts; corrected, all models ~0.92 recall → the "bottleneck" disappears):
-  `report/figures/detection_bottleneck.pdf`
-  (2-panel: detection recall + localisation RMSE vs target D, mean sweep, 3 report
-  models). STRONG/decision-supporting: Original & Full overlap at recall ~0.3 /
-  loc_rmse ~0.15; Finetuned model recall ~0.92 / loc_rmse ~0.03. Shows the limit is
-  detection/localisation under distribution shift, not the diffusion head. Source:
-  `ft_matched_summary.csv` (half_width==0.05), cell in `figs.ipynb`.
+- **R4 Detection bottleneck** — ❌ DEAD / DROP (regenerated on corrected CSVs and the
+  bottleneck VANISHED: all three models recall ~0.93-0.97, loc-RMSE ~0.02-0.04). The
+  figure now shows comparable detection = NO bottleneck; its old narrative was the
+  xy/yx artifact. Either DROP it or restate as one sentence ("all models detect
+  comparably; detection is not the differentiator"). `detection_bottleneck.pdf` still
+  exists but should not carry the old claim.
+- **R5 Transfer cost** — ✅ DONE (the REAL forgetting, now correctly measured):
+  `report/figures/transfer_cost.pdf` (calibration slope, binned vs general-sparse,
+  Full vs FT). Both detect ~0.95 everywhere (so NOT recall-forgetting — that was the
+  artifact); the real cost is CALIBRATION: FT slope 0.84→0.27 collapses out-of-dist
+  while Full 0.73→0.72 stays stable. Source: `ft_matched_ranking.csv` +
+  `forget_matched_ranking.csv`, cell in `figs.ipynb`.
 - **Fine-tune ablations** — ❌ DROPPED (2026-06-16). The 5 fine-tune variants are
   near-indistinguishable (MAE_D ~0.033, recall ~0.92), so the bar chart showed 5
   equal bars — no information. Make the "objective choice barely matters from a
