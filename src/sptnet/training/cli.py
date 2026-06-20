@@ -28,9 +28,71 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 if torch.cuda.is_available():
     torch.cuda.empty_cache()
 
+# Per-epoch wall-time log schema for the speed benchmark. One row per epoch.
+EPOCH_TIMING_COLUMNS = (
+    'epoch', 'train_seconds', 'val_seconds', 'epoch_total_seconds',
+    'n_train_batches', 'n_val_batches', 'amp', 'tf32', 'cudnn_benchmark',
+)
+
+# Autocast dtypes selectable via SPT_AMP_DTYPE.
+_AMP_DTYPES = {
+    "float16": torch.float16, "fp16": torch.float16, "half": torch.float16,
+    "bfloat16": torch.bfloat16, "bf16": torch.bfloat16,
+}
+
+
+# --- Benchmark optimization toggles ---
+# These pure resolvers read the SPT_* environment switches used by the
+# decomposition/benchmark runs (see experiments/benchmarks/). They take an
+# explicit env mapping (defaulting to os.environ) so they can be unit-tested
+# without running training. Defaults preserve normal behaviour.
+def resolve_tf32_allowed(env=None):
+    """Return whether TF32 matmul/cudnn should be allowed (SPT_DISABLE_TF32)."""
+    env = os.environ if env is None else env
+    return env.get("SPT_DISABLE_TF32", "0") != "1"
+
+
+def resolve_amp_enabled(device_type, env=None):
+    """Return whether autocast/AMP should be enabled (SPT_DISABLE_AMP, cuda only)."""
+    env = os.environ if env is None else env
+    return device_type == 'cuda' and env.get("SPT_DISABLE_AMP", "0") != "1"
+
+
+def resolve_cudnn_benchmark(env=None):
+    """Return whether cudnn.benchmark autotuning is on (SPT_CUDNN_BENCHMARK)."""
+    env = os.environ if env is None else env
+    return env.get("SPT_CUDNN_BENCHMARK", "1") != "0"
+
+
+def resolve_amp_dtype(env=None):
+    """Return the autocast dtype selected by SPT_AMP_DTYPE (default float16)."""
+    env = os.environ if env is None else env
+    name = env.get("SPT_AMP_DTYPE", "float16").lower()
+    if name not in _AMP_DTYPES:
+        raise ValueError(
+            f"SPT_AMP_DTYPE must be one of {sorted(_AMP_DTYPES)}; got {name!r}"
+        )
+    return _AMP_DTYPES[name]
+
+
+def resolve_use_grad_scaler(use_amp, amp_dtype, env=None):
+    """Return whether the AMP GradScaler is active (SPT_DISABLE_GRAD_SCALER).
+
+    The scaler is needed for float16 but not bfloat16; SPT_DISABLE_GRAD_SCALER
+    overrides the dtype-derived default (1 to disable, 0 to force on).
+    """
+    env = os.environ if env is None else env
+    disable_env = env.get("SPT_DISABLE_GRAD_SCALER")
+    if disable_env is None:
+        disable_grad_scaler = amp_dtype == torch.bfloat16
+    else:
+        disable_grad_scaler = disable_env != "0"
+    return use_amp and not disable_grad_scaler
+
+
 # --- Ampere / Turing GPU optimizations ---
 # Benchmark toggle: set SPT_DISABLE_TF32=1 to run without TF32 (decomposition runs).
-_ALLOW_TF32 = os.environ.get("SPT_DISABLE_TF32", "0") != "1"
+_ALLOW_TF32 = resolve_tf32_allowed()
 torch.backends.cuda.matmul.allow_tf32 = _ALLOW_TF32
 torch.backends.cudnn.allow_tf32 = _ALLOW_TF32
 
@@ -189,29 +251,15 @@ def main():
     else:
         device = torch.device('cpu')
     # Benchmark toggle: set SPT_DISABLE_AMP=1 to run in full precision (decomposition runs).
-    use_amp = device.type == 'cuda' and os.environ.get("SPT_DISABLE_AMP", "0") != "1"
+    use_amp = resolve_amp_enabled(device.type)
 
     # AMP precision and gradient-scaler toggles (see acc_eval/ for the stability
     # finding). SPT_AMP_DTYPE selects the autocast dtype; the default fp16 path keeps
     # the GradScaler, while bfloat16 has float32 dynamic range so the scaler is
     # unnecessary and is disabled for it by default. SPT_DISABLE_GRAD_SCALER overrides
     # the scaler choice explicitly (1 to disable, 0 to force on).
-    _AMP_DTYPES = {
-        "float16": torch.float16, "fp16": torch.float16, "half": torch.float16,
-        "bfloat16": torch.bfloat16, "bf16": torch.bfloat16,
-    }
-    _amp_dtype_name = os.environ.get("SPT_AMP_DTYPE", "float16").lower()
-    if _amp_dtype_name not in _AMP_DTYPES:
-        raise ValueError(
-            f"SPT_AMP_DTYPE must be one of {sorted(_AMP_DTYPES)}; got {_amp_dtype_name!r}"
-        )
-    amp_dtype = _AMP_DTYPES[_amp_dtype_name]
-    _disable_scaler_env = os.environ.get("SPT_DISABLE_GRAD_SCALER")
-    if _disable_scaler_env is None:
-        disable_grad_scaler = amp_dtype == torch.bfloat16
-    else:
-        disable_grad_scaler = _disable_scaler_env != "0"
-    use_grad_scaler = use_amp and not disable_grad_scaler
+    amp_dtype = resolve_amp_dtype()
+    use_grad_scaler = resolve_use_grad_scaler(use_amp, amp_dtype)
     if use_amp:
         print(
             f"AMP enabled: dtype={amp_dtype}, grad_scaler={'on' if use_grad_scaler else 'off'}",
@@ -401,7 +449,7 @@ def main():
 
     # use the fastest convolution methods when the input size is fixed; improves performance.
     # Benchmark toggle: set SPT_CUDNN_BENCHMARK=0 to disable autotuning (decomposition runs).
-    cudnn_benchmark = os.environ.get("SPT_CUDNN_BENCHMARK", "1") != "0"
+    cudnn_benchmark = resolve_cudnn_benchmark()
     torch.backends.cudnn.benchmark = cudnn_benchmark
     #torch.use_deterministic_algorithms(True)
     transformer3d = Transformer3d(d_model=256,dropout=0,nhead=8,dim_feedforward=1024,num_encoder_layers=6,num_decoder_layers=6,normalize_before=False)
@@ -436,8 +484,7 @@ def main():
 
     if not os.path.exists(timing_csv_path):
         with open(timing_csv_path, 'w') as tf:
-            tf.write('epoch,train_seconds,val_seconds,epoch_total_seconds,'
-                     'n_train_batches,n_val_batches,amp,tf32,cudnn_benchmark\n')
+            tf.write(','.join(EPOCH_TIMING_COLUMNS) + '\n')
 
     resume_history_path = args.resume_history or csv_log_path
     if args.resume_history:

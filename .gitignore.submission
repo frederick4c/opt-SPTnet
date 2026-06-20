@@ -1,0 +1,71 @@
+# Ignore profile for the GitLab SUBMISSION remote (examiner-facing).
+#
+# Unlike the public-GitHub .gitignore, this INCLUDES the report sources/PDF, the
+# notebooks, and the small reproducibility artifacts (result CSVs, figures,
+# benchmark summaries) that the report references. It still excludes raw data
+# (multi-GB movies, HDF5/MAT/TIFF), model weights, environments, and internal
+# working notes.
+#
+# Usage: on the submission checkout, use this file as .gitignore, e.g.
+#     cp .gitignore.submission .gitignore
+# (see SUBMISSION.md for the full two-remote workflow).
+
+# environments and caches
+.venv/
+.claude
+.DS_Store
+__pycache__
+*.py[cod]
+.pytest_cache/
+
+# build artifacts
+*.egg-info/
+build/
+dist/
+
+# internal agent/working notes (not examiner-facing)
+context/
+
+# docs build output
+docs/_build/
+docs/api/generated/
+
+# LaTeX build artifacts (keep main.tex, refs.bib, main.bbl, main.pdf, figures/)
+report/*.aux
+report/*.bcf
+report/*.blg
+report/*.fdb_latexmk
+report/*.fls
+report/*.log
+report/*.out
+report/*.run.xml
+report/*.toc
+report/*.synctex.gz
+report/figures/*.aux
+report/figures/*.fdb_latexmk
+report/figures/*.fls
+report/figures/*.log
+report/figures/*.synctex.gz
+
+# SLURM logs
+slurm/*.out
+slurm/*.err
+
+# raw data and model weights (cite their paths in SUBMISSION.md, do not commit)
+*.h5
+*.hdf5
+*.mat
+*.tif
+*.tiff
+*.pt
+testdata*
+RealData/
+TrainData/
+csd3_sparse_teacher/
+new_fresh_good_runs/
+old_good_8_runs/
+
+# NOTE: report/, notebooks/, *.ipynb, *.csv, diff_evals/, acc_eval/ and
+# experiments/ are deliberately NOT excluded here so the small artifacts the
+# report depends on are submitted. The *.h5 rule above still keeps the large
+# inference outputs under diff_evals/ out.

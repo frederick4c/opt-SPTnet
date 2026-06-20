@@ -1,0 +1,46 @@
+# Mirrors the big-file and artifact exclusions in .gitignore so the build
+# context stays small and reproducible.
+
+# version control / env
+.git
+.gitignore
+.venv
+.claude
+
+# caches and build artifacts
+__pycache__
+*.py[cod]
+.pytest_cache/
+*.egg-info/
+build/
+dist/
+.DS_Store
+
+# docs build output
+docs/_build/
+docs/api/generated/
+
+# report, notebooks, experiment outputs
+report/
+notebooks/
+*.ipynb
+experiments/
+slurm/*.out
+slurm/*.err
+
+# data and large artifacts
+RealData/
+TrainData/
+diff_evals/
+acc_eval/
+csd3_sparse_teacher/
+new_fresh_good_runs/
+old_good_8_runs/
+testdata*
+*.h5
+*.hdf5
+*.mat
+*.tif
+*.tiff
+*.csv
+*.pt

@@ -1,5 +1,9 @@
 # opt-SPTnet
 
+<!-- Replace OWNER with your GitHub user/org once the public repo is created. -->
+[![CI](https://github.com/OWNER/opt-SPTnet/actions/workflows/ci.yml/badge.svg)](https://github.com/frederick4c/opt-SPTnet/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 Python package for SPTnet model components, datasets, training, inference,
 segmentation, stitching, data conversion, and notebook visualization utilities
 used in single-particle tracking workflows.
@@ -20,6 +24,13 @@ Install the package in editable mode from the repository root:
 python -m pip install -e .
 ```
 
+For a deterministic install pinned to the tested dependency versions, add the
+committed lock file:
+
+```bash
+python -m pip install -e . -c constraints.txt
+```
+
 For documentation builds:
 
 ```bash
@@ -31,6 +42,29 @@ For tests:
 ```bash
 python -m pip install -e ".[test]"
 ```
+
+## Run with Docker
+
+A CPU-only image builds the package and its dependencies into a reproducible
+environment with no local Python, GPU, or MATLAB setup required:
+
+```bash
+docker build -t opt-sptnet .
+```
+
+Run any of the command-line tools in the container, mounting a host directory
+for data and outputs:
+
+```bash
+docker run --rm opt-sptnet sptnet-train --help
+
+docker run --rm -v "$PWD/data:/data" opt-sptnet \
+  sptnet-inference --model-path /data/trained_model --data "/data/test/*.h5"
+```
+
+The image installs the CPU PyTorch build. For GPU training, build from an NVIDIA
+CUDA base image and install the matching CUDA PyTorch wheel; see the comments in
+the [`Dockerfile`](Dockerfile).
 
 ## Command-Line Tools
 
@@ -208,3 +242,17 @@ pytest
 The tests use small synthetic HDF5/TIFF files and tensors, so they should run
 comfortably on a laptop. Torch-backed tests skip automatically in minimal
 environments where PyTorch is not installed.
+
+## License and Attribution
+
+`opt-SPTnet` is released under the MIT License (see [`LICENSE`](LICENSE)).
+
+This project is a derivative of the original
+[Huang Lab SPTnet](https://github.com/HuanglabPurdue/SPTnet) (MIT License,
+© 2025 BoilermakerSR). The upstream copyright notice is retained in `LICENSE` as
+required. The refactor replaces the original MATLAB-dependent script collection
+with an installable, tested, documented, MATLAB-free Python package: a single
+`src/sptnet` package with command-line entry points for every workflow stage,
+a pytest suite, Sphinx documentation, and runtime optimisations (automatic mixed
+precision, TF32, vectorised preprocessing, and removed per-epoch plotting
+overhead) that give a measured steady-state training speedup over the original.

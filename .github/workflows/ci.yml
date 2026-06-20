@@ -1,0 +1,84 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install CPU PyTorch
+        run: pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.4"
+      - name: Install package (test extras)
+        run: pip install -e ".[test]"
+      - name: Run pytest
+        run: pytest -q
+
+  docs:
+    name: docs build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install CPU PyTorch
+        run: pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.4"
+      - name: Install package (docs extras)
+        run: pip install -e ".[docs]"
+      - name: Build Sphinx docs (warnings as errors)
+        run: sphinx-build -W -b html docs docs/_build/html
+
+  build:
+    name: build + import wheel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Build sdist and wheel
+        run: |
+          pip install build
+          python -m build --sdist --wheel
+      - name: Install built wheel in a clean env and import
+        run: |
+          python -m venv /tmp/wheel-env
+          /tmp/wheel-env/bin/pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.4"
+          /tmp/wheel-env/bin/pip install dist/*.whl
+          /tmp/wheel-env/bin/python -c "import sptnet; print('import OK', sptnet.__name__)"
+          /tmp/wheel-env/bin/sptnet-train --help
+
+  lint:
+    name: lint (ruff, non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Run ruff
+        run: |
+          pip install ruff
+          ruff check src tests

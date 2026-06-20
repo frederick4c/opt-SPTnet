@@ -31,4 +31,6 @@ API Reference
    sptnet.training.trainer
    sptnet.training.data_generator
    sptnet.visualization
+   sptnet.visualization.background
+   sptnet.visualization.preprocess
    sptnet.visualization.results

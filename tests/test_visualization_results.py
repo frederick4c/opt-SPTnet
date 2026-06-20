@@ -64,7 +64,9 @@ def test_build_stitched_tracks_animation_returns_animation():
     )
 
     assert isinstance(ani, FuncAnimation)
-    assert ani._save_count == 3
+    # Use the public frame-sequence API rather than the private ``_save_count``
+    # attribute, which is not part of matplotlib's stable interface.
+    assert len(list(ani.new_frame_seq())) == 3
     ani._draw_next_frame(0, blit=False)
 
 

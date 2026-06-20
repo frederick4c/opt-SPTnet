@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "opt-SPTnet: an optimised, packaged refactor of SPTnet for single-particle tracking"
+abstract: >-
+  opt-SPTnet refactors the original MATLAB-dependent SPTnet codebase into an
+  installable, tested, documented, MATLAB-free Python package with command-line
+  interfaces for data generation, training, inference, segmentation, and
+  stitching, together with runtime optimisations that substantially reduce
+  per-epoch training time.
+type: software
+authors:
+  - given-names: Frederick
+    family-names: Lawrence
+year: 2026
+license: MIT
+references:
+  - type: software
+    title: "SPTnet"
+    notes: "Original SPTnet codebase that opt-SPTnet is derived from."
+    authors:
+      - name: "Huang Lab, Purdue University"
+    repository-code: "https://github.com/HuanglabPurdue/SPTnet"
+    license: MIT
