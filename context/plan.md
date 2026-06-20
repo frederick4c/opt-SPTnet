@@ -148,10 +148,68 @@ METHODS FIGURES DONE 2026-06-16 (all three in `main.tex` + build clean):
   Optional extra still open: a frame with GT trajectories overlaid.
 - Results §Runtime Optimisation — DONE: benchmark table + per-epoch distribution
   figure (`figures/benchmark_per_epoch_train.pdf`).
-RESULTS SECTION ORDER (reset 2026-06-16): (1) Runtime Optimisation, (2) Diffusion
-estimation: ablations, improvements and sweeps, (3) Comparison to the original
-model, (4) Real-data and stitching. Sweeps/ablations now come BEFORE the
-comparison.
+RESULTS SECTION ORDER (reset 2026-06-19, structure now in main.tex): (1) Runtime
+Optimisation [sec:results-runtime], (2) Faithful reproduction at no quality cost
+[sec:results-reproduction], (3) Attempted improvements to diffusion estimation
+[sec:results-diffusion], (4) End-to-end demonstration on real microscopy data
+[sec:results-realdata]. CHANGED from 2026-06-16: reproduction now comes BEFORE the
+diffusion-improvement section (lead with the solid contributions: speed +
+faithful-reproduction-at-no-quality-cost; then the honest critical-evaluation of
+the model changes). Each section maps to an aim: §1/§2 = Aim 2 (speed/usability) +
+Aim 1 (reproduction), §3 = Aim 4 (improvements, as critical evaluation), §4 = Aim 3
+(real data). The skeleton (headings, labels, TODO-prose comments, all
+figures/tables) is committed in main.tex and BUILDS CLEAN (30pp, 0 undefined refs).
+
+PROSE STATUS: §3 (Attempted improvements to diffusion estimation) is DRAFTED
+2026-06-19 per the approved plan (`~/.claude/plans/plan-how-to-structure-buzzing-reddy.md`):
+6 paragraphs, ~1000 words, unifying thesis = the diffusion head is variance-limited so
+the lever is data not loss; fine-tune failure framed as distribution over-specialisation
+(NOT classic overfitting, since held-out in-dist improved); metric-correction kept
+surgical; stale §3 TODO ("relocates the bottleneck to detection/localisation") was
+CORRECTED (detection is not the differentiator; residual failure localised to the
+diffusion regression-head calibration). Builds clean (32pp, 0 undefined refs).
+PROSE STILL TODO: §2 (reproduction paragraphs writable now; the AMP-neutrality paragraph
+blocked on the queued run), §4 (real-data, writable now), Conclusion, Abstract (last).
+Figures
+INSERTED LIVE: reproduction_bias (fig:reproduction-bias, §2 — REGENERATE with the
+Baseline row, CSVs already have it), transfer_cost (fig:transfer-cost, §3),
+diffusion_variance (fig:diffusion-variance, §3), ft_success/ft_fail/
+realdata_overdetection (§4), and fig:loss-vs-walltime (§2, DONE 2026-06-19 ->
+figures/loss_vs_walltime.pdf, source notebooks/loss_vs_walltime.py; shows
+opt-SPTnet reaches comparable converged val loss 4.33x faster: epoch-17 v_loss
+0.154 vs 0.165 for the original; x-axis = optimised-epoch units, ratio from the
+benchmark train_seconds). ONE PLACEHOLDER box left (build-safe \fbox) awaiting data:
+fig:amp-neutrality (the AMP-on/off quality-neutrality run). TABLES inserted with REAL numbers: tab:reproduction-agreement
+(Baseline vs Full, binned) and tab:diffusion-transfer (Baseline/Full/FT × binned vs
+general). detection_bottleneck and ablation_scratch_calibration deliberately NOT used.
+
+KEY RESULT FROM THE NEW BASELINE (2026-06-19): the combined-objective Full model
+≈ Baseline in-distribution (MAE_D 0.060 vs 0.064, slope 0.73 vs 0.82) — the
+objective changes did NOT improve accuracy. Fine-tuning IS better in-distribution
+(MAE_D 0.037, slope 0.84) but collapses out-of-distribution (slope 0.27 on the
+general sparse set) = a quantified transfer cost, not a free win. This makes the
+honest framing (speed + packaging headline, model work as critical evaluation)
+the right one; §3 must be framed as "investigated + bounded what objective changes
+can do", NOT "tried and failed".
+
+AMP-ON/OFF QUALITY-NEUTRALITY EXPERIMENT (to fill fig:amp-neutrality): run
+opt-SPTnet twice on the fixed benchmark workload via the existing harness
+(slurm/train_sptnet_benchmark_csd3.slurm), SPT_SYSTEM=new both arms, toggles only:
+ON = SPT_DISABLE_AMP=0,SPT_DISABLE_TF32=0,SPT_CUDNN_BENCHMARK=1; OFF =
+SPT_DISABLE_AMP=1,SPT_DISABLE_TF32=1,SPT_CUDNN_BENCHMARK=0. 5 epochs, ~3 reps each,
+fixed seed (RANDOM_SEED=68). Overlay loss_history.csv -> within-noise = "speed is
+free". Do NOT use the old script for this arm (reintroduces the loss-handling
+confound; old/new benchmark loss curves already DIVERGE, so the divergence is the
+loss code, not the optimisations — see notes 2026-06-19). ~couple of GPU-hours.
+
+NORMALISATION CLAIM BUG (must fix in §1): main.tex Runtime section still asserts a
+train/inference normalisation "fix" / "lower loss / more correct" (the paragraph
+starting "This wall-clock result is separate from..." and the "corrected
+normalisation" phrase in the "Taken together" paragraph). This is FALSE per notes
+2026-06-19 (old script normalises at both train and inference; the change was
+vectorisation only). NOT edited yet (kept to the structure-only request). Remove/
+correct it; the lower benchmark loss is a loss-handling difference, keep it out of
+the speed claim and out of §1.
 - Results §Diffusion estimation (ablations/improvements + sweeps) — DONE so far:
   `figures/reproduction_bias.pdf` (signed per-track D bias box plot, three REPORT
   models, source `ft_matched_*`); `figures/ablation_scratch_calibration.pdf`

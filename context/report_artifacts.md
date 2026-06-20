@@ -68,13 +68,37 @@ is broken (NaN); do not cite them.
 ### F. Code that generates the results (reproducibility)
 These live under `notebooks/` (GitHub-ignored) and must be in the submission so
 results are reproducible:
-- `notebooks/diffusion_eval_matched.py` — the corrected matched metric.
+- `notebooks/diffusion_eval_matched.py` — the corrected matched metric (NB latent
+  xy/yx bug; use `reeval_matched_fixed.py`).
+- `notebooks/reeval_matched_fixed.py` — matched eval with per-model x/y auto-detect.
+- `notebooks/loss_vs_walltime.py` — val-loss-vs-wall-clock figure (fig:loss-vs-walltime).
 - `notebooks/diffusion_eval.py`, `notebooks/finetune_diffusion_plots.py`.
 - `notebooks/testing.ipynb` — final three/four-model comparison (or export to a
   script).
 - `report/` — the LaTeX source itself (GitHub-ignored).
 
 ## 2. Initial figure list
+
+RESULTS STRUCTURE (committed in `main.tex` 2026-06-19; builds clean): §1 Runtime
+[sec:results-runtime], §2 Faithful reproduction at no quality cost
+[sec:results-reproduction], §3 Attempted improvements to diffusion estimation
+[sec:results-diffusion], §4 End-to-end demonstration on real microscopy data
+[sec:results-realdata]. Only the skeleton + figures/tables are in; PROSE TODO.
+
+Figures/tables now PLACED in `main.tex`:
+- §1: `tab:runtime-benchmark`, `fig:runtime-benchmark` (done).
+- §2: `tab:reproduction-agreement` (Baseline vs Full, binned — REAL numbers from
+  `ft_matched_ranking.csv`); `fig:reproduction-bias` = `reproduction_bias.pdf`
+  (REGENERATE with the Baseline row); `fig:loss-vs-walltime` = DONE
+  (`figures/loss_vs_walltime.pdf`, src `notebooks/loss_vs_walltime.py`; opt-SPTnet
+  reaches comparable converged loss 4.33x faster); `fig:amp-neutrality` =
+  build-safe \fbox PLACEHOLDER awaiting the AMP-on/off run.
+- §3: `tab:diffusion-transfer` (Baseline/Full/FT × binned vs general — REAL numbers
+  from `ft_matched_ranking.csv` + `forget_matched_ranking.csv`); `fig:transfer-cost`
+  = `transfer_cost.pdf`; `fig:diffusion-variance` = `diffusion_variance.pdf`.
+- §4: `fig:ft-success`, `fig:ft-fail`, `fig:realdata-overdetection`.
+- NOT used: `detection_bottleneck.pdf` (dead), `ablation_scratch_calibration.pdf`
+  (shelved).
 
 To be saved into `report/figures/` (the rough plots under
 `diff_evals/**/comparison_plots/` are diagnostics, not report figures — redraw).
@@ -158,4 +182,5 @@ To be saved into `report/figures/` (the rough plots under
   cherry-pick-proof claim instead. Screenshots still need: scale bar, box-colour
   legend, label red × as TrackMate. See [[realdata-ft-model-distribution-shift]].
 
-Tables scaffolded for the draft: benchmark (R1), three-model (R2), fine-tune (R5).
+Tables in `main.tex`: `tab:runtime-benchmark` (§1), `tab:reproduction-agreement`
+(§2, real), `tab:diffusion-transfer` (§3, real).

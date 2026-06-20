@@ -191,6 +191,33 @@ def main():
     # Benchmark toggle: set SPT_DISABLE_AMP=1 to run in full precision (decomposition runs).
     use_amp = device.type == 'cuda' and os.environ.get("SPT_DISABLE_AMP", "0") != "1"
 
+    # AMP precision and gradient-scaler toggles (see acc_eval/ for the stability
+    # finding). SPT_AMP_DTYPE selects the autocast dtype; the default fp16 path keeps
+    # the GradScaler, while bfloat16 has float32 dynamic range so the scaler is
+    # unnecessary and is disabled for it by default. SPT_DISABLE_GRAD_SCALER overrides
+    # the scaler choice explicitly (1 to disable, 0 to force on).
+    _AMP_DTYPES = {
+        "float16": torch.float16, "fp16": torch.float16, "half": torch.float16,
+        "bfloat16": torch.bfloat16, "bf16": torch.bfloat16,
+    }
+    _amp_dtype_name = os.environ.get("SPT_AMP_DTYPE", "float16").lower()
+    if _amp_dtype_name not in _AMP_DTYPES:
+        raise ValueError(
+            f"SPT_AMP_DTYPE must be one of {sorted(_AMP_DTYPES)}; got {_amp_dtype_name!r}"
+        )
+    amp_dtype = _AMP_DTYPES[_amp_dtype_name]
+    _disable_scaler_env = os.environ.get("SPT_DISABLE_GRAD_SCALER")
+    if _disable_scaler_env is None:
+        disable_grad_scaler = amp_dtype == torch.bfloat16
+    else:
+        disable_grad_scaler = _disable_scaler_env != "0"
+    use_grad_scaler = use_amp and not disable_grad_scaler
+    if use_amp:
+        print(
+            f"AMP enabled: dtype={amp_dtype}, grad_scaler={'on' if use_grad_scaler else 'off'}",
+            flush=True,
+        )
+
     # Tk().withdraw() # keep the root window from appearing
     # filename_train = askopenfilename(multiple=True, initialdir=current_folder, title='#######Please select all the Training Data File########') # show an "Open" dialog box and return the path to the selected file
     
@@ -273,7 +300,7 @@ def main():
         Clabel = (Clabel / spt.diff_max).float().to(device)
 
         optimizer.zero_grad(set_to_none=True)
-        with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+        with torch.amp.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
             class_out, center_out, H_out, C_out = model(inputs)
         # Cast back to float32 for loss computation (BCE is unsafe under autocast)
         class_out = class_out.float()
@@ -338,7 +365,7 @@ def main():
             position_label = (position_label / (spt.image_size / 2)).float().to(device)
             Hlabel = Hlabel.float().to(device)
             Clabel = (Clabel / spt.diff_max).float().to(device)
-            with torch.amp.autocast(device_type=device.type, enabled=use_amp):
+            with torch.amp.autocast(device_type=device.type, dtype=amp_dtype, enabled=use_amp):
                 class_out, center_out, H_out, C_out = model(inputs)
             # Cast back to float32 for loss computation (BCE is unsafe under autocast)
             class_out = class_out.float()
@@ -384,7 +411,7 @@ def main():
                        temporal_t=transformer3d, input_channel=512,
                        return_objectness_logits=args.objectness_loss == 'bce_logits').to(device)
     # torch.autograd.set_detect_anomaly(True)  # Disabled for performance; re-enable only for debugging
-    scaler = torch.amp.GradScaler('cuda', enabled=use_amp)  # AMP gradient scaler for mixed-precision training
+    scaler = torch.amp.GradScaler('cuda', enabled=use_grad_scaler)  # AMP gradient scaler (fp16 only; off for bfloat16)
 
     if args.gpus > 1:
         device_ids = list(range(args.gpus))

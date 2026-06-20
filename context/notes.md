@@ -675,3 +675,100 @@ Required pieces for the diffusion + comparison story, in narrative order:
 4. COMPARISON shows improvement: `reproduction_bias.pdf` (DONE — Original≈Full
    reproduction + fine-tuned model genuinely better on binned conditions) + an
    agreement table; carry the forgetting caveat for the fine-tuned model.
+
+## 2026-06-19: new-baseline result + Results chapter restructured
+
+The new matched-baseline (old-objective model trained on the SAME 100k data, now in
+the matched CSVs replacing Original ti2) settles the model-improvement question:
+- Binned (in-distribution), `ft_matched_ranking.csv`: Baseline MAE_D 0.064 / slope
+  0.823 / recall 0.934; Full model (combined objective) 0.060 / 0.726 / 0.930;
+  fine-tuned 0.037 / 0.840 / 0.925. So the combined-objective Full model ≈ Baseline
+  (objective changes did NOT improve accuracy; if anything slightly worse slope).
+  Fine-tuning IS genuinely better in-distribution.
+- General sparse (held-out), `forget_matched_ranking.csv`: Baseline 0.059 / 0.805;
+  Full 0.058 / 0.718; fine-tuned 0.096 / 0.272. The fine-tuned model's calibration
+  COLLAPSES out-of-distribution (slope 0.27) while Baseline/Full stay stable. The
+  fine-tune gain is a TRADE-OFF (in-dist accuracy vs OOD robustness), not a free win.
+
+CAVEAT on the baseline lineage: it was trained with a runtime-OPTIMISED script
+(intermediate `SPTnet_training_cli.py`: AMP/TF32 + vectorised, ORIGINAL objective),
+NOT the fully-unoptimised old script. So Baseline≈Full isolates the OBJECTIVE
+changes (both share the optimisations). A truly-old-script run would take ~30h and,
+crucially, would NOT give a clean optimisation-only control (it also carries the old
+loss-handling + script drift) — DECIDED NOT worth it. To evidence
+optimisation-quality-neutrality cleanly+cheaply, run opt-SPTnet AMP-on vs AMP-off
+(toggles already in `cli.py`/benchmark harness), same loss/seed/data, 5 epochs,
+overlay loss → fig:amp-neutrality. NB the old-vs-new benchmark loss curves DIVERGE
+(old e4 v_loss 1.34 vs new 0.61) — that is the loss-handling difference, NOT the
+optimisations; do not present it as "faster AND lower loss".
+
+DECISION: confirmed the honest framing — speed + packaging is the headline; the
+model work is a critical-evaluation chapter (investigated and BOUNDED what objective
+changes can do), not an improvement claim. Restructured the Results chapter in
+`report/main.tex` accordingly (structure only, prose still TODO; builds clean, 30pp,
+0 undefined refs). New order + what was inserted is logged in `plan.md` (RESULTS
+SECTION ORDER, 2026-06-19). Section map: §1 Runtime (Aim 2), §2 Faithful reproduction
+at no quality cost (Aims 1+2: AMP-neutral + Baseline≈Full + val-loss-vs-walltime),
+§3 Attempted improvements to diffusion estimation (Aim 4 critical eval: objective≈
+baseline, fine-tune transfer cost, variance sweep, metric correction, no detection
+bottleneck), §4 End-to-end real-data demo (Aim 3, qualitative + over-detection limit).
+Tables `tab:reproduction-agreement` and `tab:diffusion-transfer` hold the real numbers
+above. `reproduction_bias.pdf` must be REGENERATED with the Baseline row (CSVs already
+have it). One build-safe placeholder figure remains: `fig:amp-neutrality` (AMP-on/off run).
+
+`fig:loss-vs-walltime` DONE (2026-06-19): `notebooks/loss_vs_walltime.py` reads
+`diff_evals/{final,baseline}/loss_history.csv` (full 100k training, epoch-17 ckpt)
+and the benchmark `epoch_timing.csv` (new/old `train_seconds`, ratio 4.33x) and
+writes `report/figures/loss_vs_walltime.pdf` in Computer Modern. Result: both
+converge to comparable val loss (opt-SPTnet 0.154 vs original 0.165 at epoch 17),
+so opt-SPTnet reaches the same quality ~4.33x sooner. The x-axis is in
+optimised-epoch units (NOT absolute hours): the loss curves are full-dataset, the
+benchmark times are the 100-file subset, so only the workload-independent RATIO is
+used. Pairing the baseline loss curve (original objective) with old-implementation
+timing assumes optimisation quality-neutrality (the point of `fig:amp-neutrality`).
+This figure ALSO independently corroborates "no quality loss": opt-SPTnet's
+converged loss is if anything slightly lower than the original's.
+
+IMPORTANT data caveat (found 2026-06-19): `diff_evals/final/loss_history.csv` has
+27 epochs but is NOT all base training — epochs 1-22 are the base full-model run and
+epochs 23-27 are a FINE-TUNE phase appended via resume (signature: t_loss spikes
+0.130->0.338 at epoch 23, and t_diff steps down to a new ~0.012 band from ~0.020).
+The baseline CSV (18 epochs) is clean base training, best at 17. So the script
+TRUNCATES both curves at the checkpoint epoch (default `--max-epoch = checkpoint
+epoch = 17`) to keep the comparison base-vs-base; the earlier uptick in the figure
+was the fine-tune phase, not overfitting. Use `--max-epoch 99` to see the full run
+incl. fine-tune.
+
+## 2026-06-19: §3 (diffusion improvements) drafted; LaTeX build-bug fixed
+
+§3 "Attempted improvements to diffusion estimation" prose written into `report/main.tex`
+per the approved plan (`~/.claude/plans/plan-how-to-structure-buzzing-reddy.md`). Argument
+spine: (1) what was tried + mechanistic rationale; (2) the null in TWO regimes (Full vs
+Baseline from scratch; the five fine-tune variants from a competent checkpoint, which
+isolate loss geometry and are indistinguishable at MAE_D 0.033-0.034) so the objective is
+not the lever, movement comes from distribution adaptation; (3) high-D compression as
+variance-limited estimation (shrinkage toward the conditional mean is error-minimising,
+reproduced by the independent baseline so intrinsic; loss already CRLB-weighted); (4)
+fine-tune = distribution OVER-SPECIALISATION, not classic overfitting (held-out in-dist
+IMPROVED; OOD slope collapses 0.84->0.27 while recall stays ~0.95; the prior-shift is a
+direct consequence of the variance-limited regime; cost localised to the regression head,
+variance sweep shows fixed predicted spread); (5) metric correction kept surgical; (6)
+synthesis + hedged future work. Tone: hedged ("consistent with"), no em-dashes, open compounds.
+
+CORRECTED the stale §3 TODO that claimed the corrected metric "relocates the bottleneck to
+detection/localisation" — it does NOT; detection is not the differentiator (all recall
+~0.92-0.95), the residual failure is diffusion-head calibration.
+
+BUILD-BUG FIXED: a `\todo{...}` note had been placed INSIDE the `\caption{}` of
+`fig:loss-vs-walltime`, which breaks LaTeX ("Not in outer par mode" / "Float(s) lost",
+cascading to a corrupt `main.aux`). Moved it to `\todo[inline]{...}` after `\end{figure}`
+(content preserved). `\todo`/`\marginpar` must never go inside a float caption. After the
+fix, `latexmk -C` + rebuild is clean (32pp, 0 undefined refs).
+
+USER STYLE RULE (also saved to memory): in report prose, avoid hyphens and dashes unless
+absolutely necessary (no em-dashes; prefer open compounds like "high D", "per track",
+"out of distribution", matching the existing "end to end"/"trajectory level" house style).
+
+FLAGGED, NOT FIXED (structure-only request): the Runtime section (§1) still contains
+the FALSE normalisation-"fix"/"more correct"/"lower loss" claim (debunked 2026-06-19,
+above). Must be removed/corrected — see `plan.md` "NORMALISATION CLAIM BUG".

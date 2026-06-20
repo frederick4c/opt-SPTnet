@@ -86,6 +86,15 @@ export SPT_DISABLE_TF32="${SPT_DISABLE_TF32:-0}"
 export SPT_CUDNN_BENCHMARK="${SPT_CUDNN_BENCHMARK:-1}"
 export SPT_DISABLE_PLOT="${SPT_DISABLE_PLOT:-0}"
 
+# AMP precision / gradient-scaler toggles (new only). Default fp16 keeps the
+# GradScaler; SPT_AMP_DTYPE=bfloat16 selects the stable bfloat16 path (scaler off
+# by default for bfloat16). Leave SPT_DISABLE_GRAD_SCALER unset to use that default,
+# or set it to 1/0 to force the scaler off/on explicitly.
+export SPT_AMP_DTYPE="${SPT_AMP_DTYPE:-float16}"
+if [[ -n "${SPT_DISABLE_GRAD_SCALER:-}" ]]; then
+    export SPT_DISABLE_GRAD_SCALER
+fi
+
 # Per-run directory so repeats do not overwrite each other.
 run_index="${SLURM_ARRAY_TASK_ID:-1}"
 run_tag=$(printf 'run_%02d' "$run_index")
@@ -161,7 +170,7 @@ echo "Run name: $SPT_RUN_NAME"
 echo "Model dir: $SPT_MODEL_DIR"
 echo "Batch size: $SPT_BATCH_SIZE  Query: $SPT_QUERY  LR: $SPT_LEARNING_RATE  Max dc: $SPT_MAX_DC"
 echo "Max epochs: $SPT_MAX_EPOCHS  GPUs: $SPT_GPUS  DataLoader workers: $SPT_NUM_WORKERS"
-echo "Toggles: DISABLE_AMP=$SPT_DISABLE_AMP DISABLE_TF32=$SPT_DISABLE_TF32 CUDNN_BENCHMARK=$SPT_CUDNN_BENCHMARK DISABLE_PLOT=$SPT_DISABLE_PLOT"
+echo "Toggles: DISABLE_AMP=$SPT_DISABLE_AMP DISABLE_TF32=$SPT_DISABLE_TF32 CUDNN_BENCHMARK=$SPT_CUDNN_BENCHMARK DISABLE_PLOT=$SPT_DISABLE_PLOT AMP_DTYPE=$SPT_AMP_DTYPE DISABLE_GRAD_SCALER=${SPT_DISABLE_GRAD_SCALER:-auto}"
 echo "Python: $(which python)"
 echo "Benchmark log: $benchmark_log"
 
@@ -245,6 +254,8 @@ fi
     echo "disable_tf32=$SPT_DISABLE_TF32"
     echo "cudnn_benchmark=$SPT_CUDNN_BENCHMARK"
     echo "disable_plot=$SPT_DISABLE_PLOT"
+    echo "amp_dtype=$SPT_AMP_DTYPE"
+    echo "disable_grad_scaler=${SPT_DISABLE_GRAD_SCALER:-auto}"
     echo "wall_start=$wall_start_human"
     echo "wall_end=$wall_end_human"
     echo "total_wall_seconds=$total_wall_seconds"
