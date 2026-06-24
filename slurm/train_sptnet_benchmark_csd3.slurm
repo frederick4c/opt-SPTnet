@@ -86,11 +86,11 @@ export SPT_DISABLE_TF32="${SPT_DISABLE_TF32:-0}"
 export SPT_CUDNN_BENCHMARK="${SPT_CUDNN_BENCHMARK:-1}"
 export SPT_DISABLE_PLOT="${SPT_DISABLE_PLOT:-0}"
 
-# AMP precision / gradient-scaler toggles (new only). Default fp16 keeps the
-# GradScaler; SPT_AMP_DTYPE=bfloat16 selects the stable bfloat16 path (scaler off
-# by default for bfloat16). Leave SPT_DISABLE_GRAD_SCALER unset to use that default,
-# or set it to 1/0 to force the scaler off/on explicitly.
-export SPT_AMP_DTYPE="${SPT_AMP_DTYPE:-float16}"
+# AMP precision / gradient-scaler toggles (new only). Default bfloat16 takes the
+# stable path with the GradScaler off by default; SPT_AMP_DTYPE=float16/fp16 keeps
+# the GradScaler on. Leave SPT_DISABLE_GRAD_SCALER unset to use that dtype-derived
+# default, or set it to 1/0 to force the scaler off/on explicitly.
+export SPT_AMP_DTYPE="${SPT_AMP_DTYPE:-bfloat16}"
 if [[ -n "${SPT_DISABLE_GRAD_SCALER:-}" ]]; then
     export SPT_DISABLE_GRAD_SCALER
 fi

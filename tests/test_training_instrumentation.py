@@ -91,7 +91,8 @@ def test_cudnn_benchmark_default_on():
 
 
 def test_amp_dtype_selection_and_validation():
-    assert cli.resolve_amp_dtype({}) is torch.float16
+    assert cli.resolve_amp_dtype({}) is torch.bfloat16
+    assert cli.resolve_amp_dtype({"SPT_AMP_DTYPE": "fp16"}) is torch.float16
     assert cli.resolve_amp_dtype({"SPT_AMP_DTYPE": "bf16"}) is torch.bfloat16
     with pytest.raises(ValueError):
         cli.resolve_amp_dtype({"SPT_AMP_DTYPE": "float8"})

@@ -13,9 +13,14 @@ import os
 
 import numpy as np
 
+import sys
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "notebooks"))
+from plot_style import COLORS, apply_house_style  # noqa: E402
 
 
 def load_steady(config_dir, metric, warmup=1):
@@ -39,47 +44,48 @@ def main():
     ap.add_argument("--out", default=os.path.join(repo, "report", "figures", "benchmark_per_epoch_train.pdf"))
     args = ap.parse_args()
 
+    apply_house_style()
+
     new = load_steady(args.new_dir, "train_seconds")
     old = load_steady(args.old_dir, "train_seconds")
     speedup = old.mean() / new.mean()
 
     def boot_ci(arr, n=10000, seed=0):
-        rng = np.random.default_rng(seed)
-        means = arr[rng.integers(0, arr.size, size=(n, arr.size))].mean(axis=1)
-        return np.percentile(means, 2.5), np.percentile(means, 97.5)
+        gen = np.random.default_rng(seed)
+        m = arr[gen.integers(0, arr.size, size=(n, arr.size))].mean(axis=1)
+        return np.percentile(m, 2.5), np.percentile(m, 97.5)
 
-    data = [old, new]
-    means = [old.mean(), new.mean()]
-    cis = [boot_ci(old), boot_ci(new)]
-    yerr = [[m - lo for m, (lo, hi) in zip(means, cis)],
-            [hi - m for m, (lo, hi) in zip(means, cis)]]
-    labels = ["Original\nSPTnet", "opt-SPTnet"]
-    colors = ["#780115", "#06527e"]
+    # Mean bar per implementation with a 95% bootstrap CI, the individual
+    # steady-state epochs overlaid as a jittered strip (so the bar is not a flat
+    # block), and the mean labelled above. The title states the speed-up.
+    rng = np.random.default_rng(0)
+    configs = [("Original\nSPTnet", old, COLORS["baseline"]),
+               ("opt-SPTnet", new, COLORS["opt"])]
     x = [1, 2]
+    means = [arr.mean() for _, arr, _ in configs]
+    cis = [boot_ci(arr) for _, arr, _ in configs]
+    yerr = [[m - lo for m, (lo, _) in zip(means, cis)],
+            [hi - m for m, (_, hi) in zip(means, cis)]]
+    colours = [c for _, _, c in configs]
 
-    fig, ax = plt.subplots(figsize=(5.2, 4.0))
-    # Mean as bar height, with 95% bootstrap CI error bars.
-    ax.bar(x, means, width=0.6, color=colors, alpha=0.85, edgecolor=colors,
-           linewidth=1.2, yerr=yerr, capsize=5,
-           error_kw=dict(ecolor="0.25", lw=1.2), zorder=2)
-    # Individual steady-state epochs overlaid as a jittered scatter.
-    for xi, arr, c in zip(x, data, colors):
-        jitter = (np.random.default_rng(xi).random(arr.size) - 0.5) * 0.28
-        ax.scatter(np.full(arr.size, xi) + jitter, arr, s=16, color=c,
-                   alpha=0.85, zorder=3, edgecolor="white", linewidth=0.4)
-    # Mean value labels, placed just above each group's highest scatter point so
-    # they never overlap the points.
-    for xi, m, arr in zip(x, means, data):
-        ax.text(xi, arr.max() + max(old) * 0.025, f"{m:.0f}s", ha="center",
-                va="bottom", fontsize=10, fontweight="bold")
+    fig, ax = plt.subplots(figsize=(4.8, 4.4))
+    ax.bar(x, means, width=0.58, color=colours, alpha=0.9, edgecolor="black",
+           linewidth=0.7, yerr=yerr, capsize=4,
+           error_kw=dict(ecolor="0.25", lw=1.1), zorder=2)
+    for xi, (_, arr, colour) in zip(x, configs):
+        jitter = (rng.random(arr.size) - 0.5) * 0.26
+        ax.scatter(np.full(arr.size, xi) + jitter, arr, s=12, color=colour,
+                   edgecolor="white", linewidth=0.4, alpha=0.95, zorder=3)
+    for xi, m, (_, arr, colour) in zip(x, means, configs):
+        ax.text(xi, arr.max() + max(old) * 0.03, rf"\textbf{{{m:.0f}\,s}}",
+                ha="center", va="bottom", fontsize=13, color=colour)
 
     ax.set_xticks(x)
-    ax.set_xticklabels(labels)
+    ax.set_xticklabels([c[0] for c in configs])
+    ax.set_xlim(0.4, 2.6)
+    ax.set_ylim(0, max(old) * 1.15)
     ax.set_ylabel("Training time per epoch (s)")
-    ax.set_ylim(0, max(old) * 1.18)
-    ax.set_title("Per-epoch training time (8 runs, steady-state)")
-    ax.annotate(f"{speedup:.2f}× faster", xy=(1.5, max(old) * 1.10),
-                ha="center", va="center", fontsize=12, fontweight="bold")
+    ax.set_title(rf"Per-epoch training time: {speedup:.2f}$\times$ faster")
 
     fig.tight_layout()
     os.makedirs(os.path.dirname(args.out), exist_ok=True)

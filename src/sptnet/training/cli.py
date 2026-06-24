@@ -65,9 +65,9 @@ def resolve_cudnn_benchmark(env=None):
 
 
 def resolve_amp_dtype(env=None):
-    """Return the autocast dtype selected by SPT_AMP_DTYPE (default float16)."""
+    """Return the autocast dtype selected by SPT_AMP_DTYPE (default bfloat16)."""
     env = os.environ if env is None else env
-    name = env.get("SPT_AMP_DTYPE", "float16").lower()
+    name = env.get("SPT_AMP_DTYPE", "bfloat16").lower()
     if name not in _AMP_DTYPES:
         raise ValueError(
             f"SPT_AMP_DTYPE must be one of {sorted(_AMP_DTYPES)}; got {name!r}"
@@ -254,10 +254,11 @@ def main():
     use_amp = resolve_amp_enabled(device.type)
 
     # AMP precision and gradient-scaler toggles (see acc_eval/ for the stability
-    # finding). SPT_AMP_DTYPE selects the autocast dtype; the default fp16 path keeps
-    # the GradScaler, while bfloat16 has float32 dynamic range so the scaler is
-    # unnecessary and is disabled for it by default. SPT_DISABLE_GRAD_SCALER overrides
-    # the scaler choice explicitly (1 to disable, 0 to force on).
+    # finding). SPT_AMP_DTYPE selects the autocast dtype; the default bfloat16
+    # path has float32 dynamic range, so the GradScaler is unnecessary and is
+    # disabled for it by default. Selecting float16/fp16 keeps the scaler on.
+    # SPT_DISABLE_GRAD_SCALER overrides the scaler choice explicitly (1 to
+    # disable, 0 to force on).
     amp_dtype = resolve_amp_dtype()
     use_grad_scaler = resolve_use_grad_scaler(use_amp, amp_dtype)
     if use_amp:

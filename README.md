@@ -1,7 +1,6 @@
 # opt-SPTnet
 
-<!-- Replace OWNER with your GitHub user/org once the public repo is created. -->
-[![CI](https://github.com/OWNER/opt-SPTnet/actions/workflows/ci.yml/badge.svg)](https://github.com/frederick4c/opt-SPTnet/actions/workflows/ci.yml)
+[![CI](https://github.com/frederick4c/opt-SPTnet/actions/workflows/ci.yml/badge.svg)](https://github.com/frederick4c/opt-SPTnet/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 Python package for SPTnet model components, datasets, training, inference,
