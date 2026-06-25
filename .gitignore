@@ -4,9 +4,11 @@
 
 # cache
 __pycache__
+**/__pycache__/
 .DS_Store
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 
 # build artifacts
 *.egg-info/
@@ -17,33 +19,38 @@ dist/
 slurm/*.out
 slurm/*.err
 
-# notebooks
+# notebooks and report are submitted only to GitLab, not public GitHub
 notebooks/
 *.ipynb
+report/
 
-# docs
+# docs build output
 docs/_build/
 docs/api/generated/
-
-# big files
-CRLB_H_D_frame.mat
-experiments/spatial_diffusion_visual/spatial_diffusion_visual.tif
 
 # internal working notes (kept local, shipped to neither remote)
 context/
 
-# report
-report/
-
-
-# data
+# build/data artifacts and model weights
+CRLB_H_D_frame.mat
+experiments/spatial_diffusion_visual/spatial_diffusion_visual.tif
 testdata*
 *.h5
+*.hdf5
+*.mat
+*.tif
+*.tiff
 *.csv
 *.pt
+**/trained_model
+TrainData/
 csd3_sparse_teacher/
 RealData/
 diff_evals/
+acc_eval/
 new_fresh_good_runs/
 old_good_8_runs/
-acc_eval/
+
+# submission repo
+.gitignore.submission
+SUBMISSION.md

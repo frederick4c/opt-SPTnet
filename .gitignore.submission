@@ -15,8 +15,10 @@
 .claude
 .DS_Store
 __pycache__
+**/__pycache__/
 *.py[cod]
 .pytest_cache/
+.ruff_cache/
 
 # build artifacts
 *.egg-info/
@@ -58,6 +60,7 @@ slurm/*.err
 *.tif
 *.tiff
 *.pt
+**/trained_model
 testdata*
 RealData/
 TrainData/
