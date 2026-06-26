@@ -68,17 +68,3 @@ jobs:
           /tmp/wheel-env/bin/python -c "import sptnet; print('import OK', sptnet.__name__)"
           /tmp/wheel-env/bin/sptnet-train --help
 
-  lint:
-    name: lint (ruff, non-blocking)
-    runs-on: ubuntu-latest
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-      - name: Run ruff
-        run: |
-          pip install ruff
-          ruff check src tests

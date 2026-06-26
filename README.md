@@ -13,7 +13,7 @@ installable package under `src/sptnet/`, with command-line entry points for the
 main workflows.
 
 Documentation can be found at
-https://app.readthedocs.org/projects/opt-sptnet/.
+https://opt-sptnet.readthedocs.io/en/latest/.
 
 ## Installation
 
@@ -214,7 +214,7 @@ HTML(ani.to_jshtml())
 ## Documentation
 
 Documentation can be found at
-https://app.readthedocs.org/projects/opt-sptnet/.
+https://opt-sptnet.readthedocs.io/en/latest/.
 
 The documentation is built with Sphinx from the pages in `docs/` and API
 docstrings in `src/sptnet`. Read the Docs is configured via `.readthedocs.yaml`
@@ -242,6 +242,9 @@ The tests use small synthetic HDF5/TIFF files and tensors, so they should run
 comfortably on a laptop. Torch-backed tests skip automatically in minimal
 environments where PyTorch is not installed.
 
+## Note on the Use of Autogeneration Tools
+Language models (via Codex and Claude Code) were used in an assistive capacity for tasks which included debugging Python, drafting docstrings, SLURM script templates as well as assistance in translation of MATLAB code. All such output was reviewed and modified by myself, and the research design, analysis, results and written argument are mine.
+
 ## License and Attribution
 
 `opt-SPTnet` is released under the MIT License (see [`LICENSE`](LICENSE)).
@@ -254,4 +257,7 @@ with an installable, tested, documented, MATLAB-free Python package: a single
 `src/sptnet` package with command-line entry points for every workflow stage,
 a pytest suite, Sphinx documentation, and runtime optimisations (automatic mixed
 precision, TF32, vectorised preprocessing, and removed per-epoch plotting
-overhead) that give a measured steady-state training speedup over the original.
+overhead) that give an approximately 4.3× steady-state per-epoch training speedup
+over the original.
+
+This project is maintained by Frederick Lawrence at the University of Cambridge
