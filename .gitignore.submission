@@ -48,6 +48,7 @@ report/figures/*.fdb_latexmk
 report/figures/*.fls
 report/figures/*.log
 report/figures/*.synctex.gz
+report/*.bbl
 
 # SLURM logs
 slurm/*.out
